@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>数据脱敏工具</title>
 <style>
+  /* 能力门控：后端 /api/health 的 engines 声明为 false 的功能，前端据此隐藏 */
+  .cap-off { display: none !important; }
   /* ================= Design Tokens（语义对齐 TDesign；命名空间 --ds-*） ================= */
   :root {
     --ds-font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif;
@@ -309,13 +311,13 @@
       <button class="nav-item" data-dest="annotate" id="nav-annotate" disabled>标注</button>
       <button class="nav-item" data-dest="export" id="nav-export" disabled>导出</button>
       <button class="nav-item" data-dest="restore">还原</button>
-      <button class="nav-item" data-dest="library">脱敏库</button>
+      <button class="nav-item library-only" data-dest="library">脱敏库</button>
       <div class="nav-foot">
         <button id="diag-btn" class="nav-btn" title="打包本机运行日志与元数据（不含原文、不含脱敏内容），可放心发回">导出诊断包</button>
-        <button id="adjust-export-btn" class="nav-btn" title="导出当前未输出的『脱敏调整』记录——含所在整句原文，仅供作者分析，请勿外发">导出调整历史</button>
+        <button id="adjust-export-btn" class="nav-btn adjust-only" title="导出当前未输出的『脱敏调整』记录——含所在整句原文，仅供作者分析，请勿外发">导出调整历史</button>
         <label class="hint chk" style="font-size:12px"><input type="checkbox" id="verbose"> 详细日志</label>
         <span id="diag-msg" class="hint"></span>
-        <span id="adjust-msg" class="hint"></span>
+        <span id="adjust-msg" class="hint adjust-only"></span>
       </div>
     </nav>
     <div class="routerview">
@@ -342,8 +344,8 @@
           <span id="mode-hint" class="hint">规则引擎已自动扫出建议，你在列表中确认或删除；也可在左栏拖选文本手动标注，同一值会在全文多处自动归为一组。</span>
           <!-- 可选类型各自独立勾选：金额与日期的「该不该脱」判断完全不同
                （金额常要保留来核对账目，日期常要保留来看时效），绑成一个开关不灵活。 -->
-          <label class="hint chk"><input type="checkbox" id="opt-amount" class="opt-type" value="金额"> 识别金额</label>
-          <label class="hint chk"><input type="checkbox" id="opt-date" class="opt-type" value="日期"> 识别日期</label>
+          <label class="hint chk auto-only"><input type="checkbox" id="opt-amount" class="opt-type" value="金额"> 识别金额</label>
+          <label class="hint chk auto-only"><input type="checkbox" id="opt-date" class="opt-type" value="日期"> 识别日期</label>
           <!-- 原先「正文人名 / 整段门址」两个复选框已移除：它们是 checked+disabled、无 onchange、
                state 里恒为 true 的**纯展示控件**，根本点不动，不是真开关。
                其中「整段门址」更是在当前默认模型（bert4ner，MSRA PER/ORG/LOC）下**根本不生效**——
@@ -351,10 +353,10 @@
                地址一律由正则整段门址 + 「有区划前缀无门牌号」兜底负责（见 api.rs）。
                NER 可用性由后端自行判定（ner::is_loaded()），前端不再传 ner_person / ner_address
                （后端语义：不传即开）。将来若换回 OpenMed（有 ADDR 组），门址 NER 会自动重新生效。 -->
-          <span class="hint" title="正文里孤立出现的人名由本地离线模型补充；不联网、不出文">本地离线模型已启用（正文人名）</span>
+          <span class="hint auto-only" title="正文里孤立出现的人名由本地离线模型补充；不联网、不出文">本地离线模型已启用（正文人名）</span>
           <!-- 灵敏度滑块已移除：阈值固定（准确性优先），各规则置信度已按社区通行值校准。 -->
-          <button id="detect-btn">自动识别</button>
-          <span class="hint">固定阈值 0.8</span>
+          <button id="detect-btn" class="auto-only">自动识别</button>
+          <span class="hint auto-only">固定阈值 0.8</span>
           <span style="flex:1"></span>
           <button id="mask-btn" class="primary">执行脱敏</button>
           <button id="clear-btn">清空全部</button>
@@ -422,7 +424,7 @@
           <span class="file-name" id="restore-file-name"></span>
           <span class="file-name" id="restore-mapping-name"></span>
             <button id="export-mapping-btn">导出映射表</button>
-            <button id="import-mapping-btn">导入映射表</button>
+            <button id="import-mapping-btn" class="import-only">导入映射表</button>
             <input type="file" id="import-mapping" accept=".json" hidden>
           </div>
           <div id="restore-msg" class="error"></div>
@@ -431,7 +433,7 @@
 
       <!-- ⑤ 脱敏库 -->
       <div class="dest scroll" id="dest-library">
-        <div class="card" id="lib-body">
+        <div class="card library-only" id="lib-body">
             <h2>脱敏库</h2>
             <div class="hint" style="margin-bottom:8px">已脱敏过的字段值、手动加入的值，以及内置地名都会收录于此；打开文档时命中的值会自动建议。可按类别筛选，或在顶部新增。</div>
             <div class="row" style="margin-bottom:8px">
@@ -1381,6 +1383,7 @@ function sentenceAround(start, end) {
 // 记录一条调整（失败静默——日志不该影响主流程）。
 function logAdjust(action, autoValue, start, end, newValue) {
   if (!state.taskId || !autoValue) return;
+  if (!caps || !caps.adjust) return;  // 纯手动版无 adjust 接口，静默跳过
   fetch('/api/adjust-log', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2385,7 +2388,27 @@ bindSync('text-view', 'preview-view');
 // ---------------------------------------------------------------- 诊断与版本
 
 // 页头常显版本号：用户反馈时多半只发一张截图，让「哪一份构建」一眼可判。
-async function loadVersion() {
+// 后端能力声明（来自 /api/health 的 engines）。默认值全开，保证旧后端 / 取不到时
+// 仍呈现完整界面（向后兼容）；健康接口返回后会用真实值覆盖。
+// 这是前端唯一区分 master / lacuna 的依据——绝不写「if (isLacuna)」这类硬编码分支。
+let caps = { regex:true, ner:true, library:true, import_mapping:true, adjust:true };
+
+// 按能力声明显隐各功能区块。元素通过 auto-only / library-only / import-only / adjust-only
+// 类标记，这里统一切换 `.cap-off`。
+function applyCaps() {
+  const auto = !!(caps && (caps.regex || caps.ner));
+  document.querySelectorAll('.auto-only').forEach(el => el.classList.toggle('cap-off', !auto));
+  document.querySelectorAll('.library-only').forEach(el => el.classList.toggle('cap-off', !caps.library));
+  document.querySelectorAll('.import-only').forEach(el => el.classList.toggle('cap-off', !caps.import_mapping));
+  document.querySelectorAll('.adjust-only').forEach(el => el.classList.toggle('cap-off', !caps.adjust));
+  // 工具栏提示语按「自动/纯手动」切换，避免纯手动下出现「规则引擎已自动扫出建议」这类误导文案。
+  const mh = document.getElementById('mode-hint');
+  if (mh) mh.textContent = auto
+    ? '规则引擎已自动扫出建议，你在列表中确认或删除；也可在左栏拖选文本手动标注，同一值会在全文多处自动归为一组。'
+    : '在左栏拖选文本手动标注需要脱敏的内容，同一值会在全文多处自动归为一组；也可把常用值加入右侧脱敏库。';
+}
+
+async function loadHealth() {
   try {
     const r = await fetch('/api/health');
     if (!r.ok) return;
@@ -2395,7 +2418,10 @@ async function loadVersion() {
     // ② GET /api/health（返回 version 与 build）。此处仍挂在 title 上，悬浮可见、不占版面。
     $('app-version').textContent = 'v' + d.version;
     $('app-version').title = d.build || ('版本 ' + d.version);
-  } catch (e) { /* 取不到版本号不影响使用，静默即可 */ }
+    // 用后端真实能力覆盖默认值（显式 false 会覆盖默认 true；缺省字段保留默认 true）。
+    caps = Object.assign({ regex:true, ner:true, library:true, import_mapping:true, adjust:true }, d.engines || {});
+  } catch (e) { /* 取不到版本号不影响使用，caps 保持默认全开 */ }
+  applyCaps();
 }
 
 // 一键导出诊断包。服务端有可能失败，所以走 fetch + blob（而非直接跳转下载），
@@ -2571,7 +2597,8 @@ document.addEventListener('drop', (e) => {
 // ---------------------------------------------------------------- 初始化
 
 (async function init() {
-  loadVersion();
+  applyCaps();   // 先用默认值（全开）渲染，避免能力加载前闪烁
+  loadHealth();  // 拉取 /api/health，按真实能力覆盖并重新显隐
   document.addEventListener('click', (e)=>{
     const p = $('field-panel');
     if (!p.hidden && !p.contains(e.target) && !e.target.closest('mark[data-gid]') &&
