@@ -1,0 +1,2584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数据脱敏工具</title>
+<style>
+  /* ================= Design Tokens（语义对齐 TDesign；命名空间 --ds-*） ================= */
+  :root {
+    --ds-font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif;
+    --ds-font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;
+    --ds-fs-xs:12px; --ds-fs-sm:13px; --ds-fs-md:14px; --ds-fs-lg:16px;
+    --ds-sp-1:4px; --ds-sp-2:8px; --ds-sp-3:12px; --ds-sp-4:16px; --ds-sp-5:20px; --ds-sp-6:24px;
+    --ds-rd-sm:6px; --ds-rd-md:9px; --ds-rd-lg:12px; --ds-rd-full:999px;
+    --ds-bg-page:#f4f5f7; --ds-bg-container:#fff; --ds-bg-container-hover:#f8f9fa; --ds-bg-secondary:#f7f8fa;
+    --ds-bg-component:#eff0f2; --ds-bg-component-hover:#e7e9ed; --ds-bg-overlay:rgba(0,0,0,.45);
+    --ds-fg-primary:rgba(0,0,0,.90); --ds-fg-secondary:rgba(0,0,0,.60); --ds-fg-placeholder:rgba(0,0,0,.40);
+    --ds-fg-disabled:rgba(0,0,0,.26); --ds-fg-anti:#fff;
+    --ds-bd-subtle:#ebedf0; --ds-bd:#dcdee3; --ds-bd-strong:#c9cdd4;
+    --ds-brand:#0052d9; --ds-brand-hover:#366ef4; --ds-brand-active:#003cab; --ds-brand-light:#f2f3ff; --ds-brand-focus:rgba(0,82,217,.12);
+    --ds-success:#2ba471; --ds-success-light:#e9f7f1; --ds-warning:#e37318; --ds-warning-light:#fff1e9;
+    --ds-error:#d54941; --ds-error-light:#fff0ed;
+    --ds-sh-1:0 1px 4px rgba(0,0,0,.06),0 2px 6px rgba(0,0,0,.04);
+    --ds-sh-2:0 4px 12px rgba(0,0,0,.10),0 2px 4px rgba(0,0,0,.06);
+    --ds-sh-3:0 8px 24px rgba(0,0,0,.16),0 2px 6px rgba(0,0,0,.08);
+    --ds-mark-bg:#fff1c9; --ds-mark-bd:#e3a700; --ds-mark-ex-bg:#f1f2f4;
+    --ds-ph-bg:#e3ebff; --ds-ph-fg:#003cab; --ds-locate-bg:#ffd9c2; --ds-locate-ring:#d54941;
+    --ds-topbar-h:48px; --ds-statusbar-h:28px;
+    /* 导航栏宽度：**随视口缩放**（原先写死 208px，而右侧内容区是 flex:1 / fr 弹性宽度，
+       于是窗口一缩只有内容区在缩、导航栏占比反而越来越大）。改为 clamp：常态 ≈184px
+       （比原 208 略窄），窄窗口自动收到 152px 兜底，避免挤掉内容区。 */
+    --ds-navrail-w:clamp(152px, 12vw, 184px);
+    /* 旧变量别名（后面既有规则仍引用，避免大改） */
+    --line:var(--ds-bd); --accent:var(--ds-brand); --mark:var(--ds-mark-bg); --mark-ex:var(--ds-mark-ex-bg);
+    --ph:var(--ds-ph-bg); --danger:var(--ds-error); --ok:var(--ds-success); --muted:var(--ds-fg-secondary);
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { margin:0; font:var(--ds-fs-md)/1.7 var(--ds-font-ui); color:var(--ds-fg-primary);
+         background:var(--ds-bg-page); overflow:hidden; }
+  :focus-visible { outline:2px solid var(--ds-brand); outline-offset:2px; }
+
+  /* ================= 应用外壳：TopBar / NavRail / RouterView / StatusBar ================= */
+  .shell { display:flex; flex-direction:column; height:100dvh; }
+  .topbar { height:var(--ds-topbar-h); flex:none; display:flex; align-items:center; gap:var(--ds-sp-3);
+            padding:0 var(--ds-sp-4); background:var(--ds-bg-container); border-bottom:1px solid var(--ds-bd-subtle); }
+  .topbar h1 { margin:0; font-size:var(--ds-fs-lg); font-weight:600; }
+  .topbar .sub { color:var(--ds-fg-secondary); font-size:var(--ds-fs-xs); }
+  .topbar .spacer { flex:1; }
+  .file-chip { display:inline-flex; align-items:center; font-size:var(--ds-fs-xs); color:var(--ds-fg-secondary);
+               background:var(--ds-bg-component); border-radius:var(--ds-rd-full); padding:2px 10px;
+               max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .shell-body { flex:1; display:flex; min-height:0; }
+  .navrail { width:var(--ds-navrail-w); flex:none; background:var(--ds-bg-secondary);
+             border-right:1px solid var(--ds-bd-subtle); padding:var(--ds-sp-3) var(--ds-sp-2);
+             display:flex; flex-direction:column; gap:2px; }
+  .nav-item { display:flex; align-items:center; justify-content:center; height:36px; padding:0 12px; border:none;
+              background:none; font:inherit; border-radius:var(--ds-rd-sm); cursor:pointer;
+              color:var(--ds-fg-primary); text-align:center; }
+  .nav-item:hover { background:var(--ds-bg-component); }
+  .nav-item.active { background:var(--ds-bg-container); box-shadow:inset 3px 0 0 var(--ds-brand); font-weight:600; }
+  .nav-item:disabled { color:var(--ds-fg-disabled); cursor:not-allowed; }
+  .nav-foot { margin-top:auto; border-top:1px solid var(--ds-bd-subtle); padding-top:var(--ds-sp-3);
+              display:flex; flex-direction:column; gap:6px; }
+  .nav-foot .nav-btn { font-size:var(--ds-fs-xs); padding:5px 8px; }
+  .routerview { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .dest { display:none; flex:1; min-height:0; flex-direction:column; }
+  .dest.active { display:flex; min-width:100%; }
+  .dest.scroll { overflow:auto; padding:var(--ds-sp-5); }
+  .statusbar { height:var(--ds-statusbar-h); flex:none; display:flex; align-items:center; gap:14px;
+               padding:0 var(--ds-sp-4); background:var(--ds-bg-secondary); border-top:1px solid var(--ds-bd-subtle);
+               font-size:var(--ds-fs-xs); color:var(--ds-fg-secondary); }
+  .statusbar .dot { width:7px; height:7px; border-radius:50%; background:var(--ds-success); }
+  /* 通用：卡片 / 排版 / 控件 */
+  .card { background:var(--ds-bg-container); border:1px solid var(--ds-bd-subtle); border-radius:var(--ds-rd-md);
+          box-shadow:var(--ds-sh-1); padding:var(--ds-sp-5); }
+  h2 { font-size:15px; margin:0 0 12px; font-weight:600; }
+  h3 { font-size:13px; margin:0 0 8px; color:var(--ds-fg-secondary); font-weight:600; }
+  button { font:inherit; padding:7px 14px; border-radius:var(--ds-rd-sm); border:1px solid var(--ds-bd);
+           background:var(--ds-bg-container); color:var(--ds-fg-primary); cursor:pointer; }
+  button:hover { border-color:var(--ds-brand); }
+  button:active { background:var(--ds-bg-component); }
+  button.primary { background:var(--ds-brand); color:var(--ds-fg-anti); border-color:var(--ds-brand); }
+  button.primary:hover { background:var(--ds-brand-hover); border-color:var(--ds-brand-hover); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  select, input[type=file], input[type=text] { font:inherit; padding:6px 8px; border:1px solid var(--ds-bd);
+                             border-radius:var(--ds-rd-sm); background:var(--ds-bg-container); color:var(--ds-fg-primary); }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .hint { color:var(--ds-fg-secondary); font-size:var(--ds-fs-sm); }
+  .error { color:var(--ds-error); font-size:var(--ds-fs-sm); margin-top:8px; white-space:pre-wrap; }
+  .ok { color:var(--ds-success); font-size:var(--ds-fs-sm); margin-top:8px; }
+  .chk { display:flex; gap:6px; align-items:center; white-space:nowrap; }
+
+  /* 三栏 */
+  /* 三栏不对等：左右两个表格需要更多宽度，中栏（脱敏项目）可以窄一些。
+     用 minmax(0, Nfr) 而非 1fr：1fr == minmax(auto,1fr)，网格项不会收缩到内容
+     最小宽度以下，宽表格会把轨道撑宽、使里层容器的横向滚动失效。 */
+  .three { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,0.8fr) minmax(0,1.6fr);
+           gap:14px; align-items:start; }
+  /* min-width:0 是必需的：`.three` 用 1fr，而 1fr == minmax(auto,1fr)，
+     网格项默认不会收缩到内容最小宽度以下。表格有很宽的显式宽度时，整条轨道
+     会被撑宽到和表格一样宽，里层容器的 overflow:auto 就再也不会触发横向滚动，
+     页面反被撑出屏幕。置 0 后轨道正常收缩，滚动条回到表格容器自身。 */
+  .col { background:#fcfcfd; border:1px solid var(--line); border-radius:8px; padding:10px;
+         min-width:0; }
+  .col h3 { background:#fcfcfd; padding:4px 2px; margin:0 0 10px; }
+  #text-view { white-space:pre-wrap; word-break:break-word; line-height:1.9;
+               max-height:520px; overflow:auto; }
+  #text-view mark { background:var(--mark); padding:1px 0; border-radius:2px; cursor:pointer; }
+  /* 连续脱敏字段（DOM 上紧邻的 mark）之间画一条 2px 分隔线，区分边界。
+     用 box-shadow 而非 border/margin：完全不影响字距与布局，原文间隔自然分开的不画。 */
+  #text-view mark + mark { box-shadow:-2px 0 0 0 rgba(31,36,48,.6); }
+  #text-view mark.excluded { background:var(--mark-ex); text-decoration:line-through;
+                             color:#9aa3b2; cursor:pointer; }
+  #preview-view { white-space:pre-wrap; word-break:break-word; line-height:1.9;
+                  max-height:520px; overflow:auto; }
+  #preview-view .ph { background:var(--ph); padding:1px 0; border-radius:2px; }
+
+  /* 表格视图（xlsx 专用，虚拟滚动） */
+  #text-view.sheet, #preview-view.sheet { white-space:normal; padding:0; }
+  .sheet-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .sheet-tabs button { padding:4px 10px; font-size:13px; }
+  .sheet-tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  /* 不设 width:100%：表格总宽由 JS 按「列宽自适应、且不超过容器宽度」算出，
+     列宽超过可用宽度时单元格内自动换行，内容完整展示（不再截断成省略号）。 */
+  table.sheet-table { border-collapse:collapse; font-size:13px; table-layout:fixed; }
+  table.sheet-table th, table.sheet-table td {
+    border:1px solid #eceff3; padding:3px 8px; text-align:left; vertical-align:top; }
+  /* pre-wrap 保留单元格内的换行，anywhere 保证超长内容也能断开换行 */
+  table.sheet-table td.cell { white-space:pre-wrap; word-break:break-word;
+                              overflow-wrap:anywhere; }
+  table.sheet-table thead th {
+    position:sticky; top:0; z-index:3; background:#f1f4f8; color:var(--muted);
+    font-weight:600; text-align:center; }
+  table.sheet-table tbody th.rownum { background:#f7f9fb; color:var(--muted); text-align:center; width:42px; }
+  table.sheet-table td.cell { cursor:text; }
+  table.sheet-table td.cell:hover { background:#f3f7ff; }
+  table.sheet-table td.cell .ph { background:var(--ph); padding:0 2px; border-radius:2px; }
+  table.sheet-table td.cell.flash, table.sheet-table td.cell.focused-cell { outline:2px solid #c0392b; }
+  table.sheet-table tr.spacer td { padding:0; border:none; }
+
+  /* 中栏列表独立滚动，便于「点击左/右栏 → 居中并高亮中栏对应项」 */
+  #group-list { max-height:520px; overflow:auto; }
+
+  /* 中栏列表 */
+  .gitem { border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:8px;
+           cursor:pointer; }
+  .gitem:hover { border-color:var(--accent); }
+  .gitem.focused { border-color:var(--accent); box-shadow:0 0 0 2px rgba(47,111,208,.28); }
+  /* 中栏被脱敏字段值：独占最顶部一行，完整展示并允许按中栏宽度换行 */
+  .gitem .val-line { display:block; margin-bottom:4px; }
+  .gitem .val { font-weight:600; min-width:0; overflow:visible; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; }
+  /* 占位符 + 脱敏数量另起一行（不与字段值同行） */
+  .gitem .top { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .gitem .meta { color:var(--muted); font-size:12px; margin-top:3px; }
+  .badge { font-size:11px; border-radius:10px; padding:0 7px; }
+  .badge.on { background:#e7f6ec; color:var(--ok); }
+  .badge.off { background:#fdecea; color:var(--danger); }
+
+  /* 就近编辑面板 */
+  #field-panel { position:fixed; z-index:50; width:300px; background:#fff;
+                 border:1px solid var(--accent); border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.18);
+                 padding:14px; }
+  #field-panel h3 { position:static; background:none; padding:0; margin:0 0 10px; }
+  #field-panel label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  #field-panel .occ { max-height:140px; overflow:auto; border:1px solid var(--line);
+                      border-radius:6px; padding:6px; margin-top:4px; }
+  #field-panel .occ label { display:flex; gap:6px; align-items:center; margin:2px 0; color:#1f2430; }
+  #field-panel .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  #panel-status { font-size:12px; color:var(--ok); min-height:16px; margin-top:6px; }
+
+  .link { color:var(--accent); text-decoration:none; }
+  /* 报错里可点击跳转的坐标 */
+  .coord-link { color:var(--accent); cursor:pointer; text-decoration:underline; font-weight:600; }
+  .count-pill { background:#eef2f7; border-radius:10px; padding:0 8px; font-size:12px; }
+
+  /* 映射表自定义下拉（逐条删除） */
+  .mapping-dd { position:relative; display:inline-block; }
+  /* 中栏：每项显示对应占位符编号 */
+  .ph-no { display:inline-block; margin-left:6px; padding:0 6px; border-radius:4px;
+           background:var(--ph); color:#1f3a5f; font-size:12px; font-weight:600; }
+  /* 查看映射表模态 */
+  #mapping-view { position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; }
+  #mapping-view[hidden] { display:none; }
+  #mapping-view .mv-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.35); }
+  #mapping-view .mv-dialog { position:relative; width:min(680px,92vw); max-height:82vh; background:#fff;
+           border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.25); display:flex; flex-direction:column; }
+  #mapping-view .mv-head { display:flex; align-items:center; justify-content:space-between;
+           padding:12px 16px; border-bottom:1px solid var(--line); font-weight:600; }
+  #mapping-view .mv-actions { display:flex; gap:8px; }
+  #mapping-view .mv-body { overflow:auto; padding:8px 12px 14px; }
+  #mapping-view .mv-table { width:100%; border-collapse:collapse; font-size:14px; }
+  #mapping-view .mv-table th, #mapping-view .mv-table td { text-align:left; padding:6px 8px;
+           border-bottom:1px solid #eef1f5; vertical-align:top; }
+  #mapping-view .mv-table th { position:sticky; top:0; background:#f6f7f9; }
+  #mapping-view .ph-cell { color:#1f3a5f; font-weight:600; white-space:nowrap; }
+  .dd-btn { min-width:200px; text-align:left; background:#fff; }
+  .dd-panel { position:absolute; z-index:40; top:100%; left:0; min-width:260px;
+              background:#fff; border:1px solid var(--line); border-radius:6px;
+              box-shadow:0 8px 24px rgba(0,0,0,.15); margin-top:4px;
+              max-height:260px; overflow:auto; }
+  .dd-item { display:flex; align-items:center; gap:8px; padding:7px 10px;
+             border-bottom:1px solid #f0f2f5; }
+  .dd-item:last-child { border-bottom:none; }
+  .dd-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+             cursor:pointer; }
+  .dd-name:hover { color:var(--accent); }
+  .dd-del { padding:3px 9px; font-size:12px; color:var(--danger);
+            border-color:#f0c5c0; }
+  .dd-empty { padding:10px; color:var(--muted); font-size:13px; }
+  .dd-toolbar { display:flex; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line);
+                background:#fafbfc; position:sticky; top:0; }
+  .dd-toolbar button { font-size:12px; padding:4px 10px; }
+  .dd-check { width:15px; height:15px; flex:none; cursor:pointer; margin:0; }
+
+  /* 中栏：聚焦项自动展开「出现位置」 */
+  .gitem .occs { display:none; margin-top:8px; border-top:1px dashed var(--line);
+                  padding-top:8px; }
+  .gitem.focused .occs { display:block; }
+  .occ-row { display:flex; align-items:flex-start; gap:8px; padding:3px 0; }
+  .occ-row .occ-text { flex:1; cursor:pointer; font-size:13px; word-break:break-all; }
+  .occ-row .occ-text:hover { color:var(--accent); text-decoration:underline; }
+  .mark.flash, .ph.flash { background:#ff9f1c !important; outline:2px solid #c0392b !important;
+                          box-shadow:0 0 0 2px rgba(192,57,43,.25); border-radius:2px; }
+
+  /* ================= 标注台（外壳内，栏内滚动；覆盖上面的旧规则） ================= */
+  .toolbar { flex:none; min-height:52px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+             padding:8px var(--ds-sp-4); background:var(--ds-bg-container); border-bottom:1px solid var(--ds-bd-subtle); }
+  .toolbar #mode-hint { flex:1 1 260px; min-width:180px; }
+  .three { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,0.8fr) minmax(0,1.6fr);
+           gap:var(--ds-sp-3); align-items:stretch; }
+  #work .three { flex:1; min-height:0; padding:var(--ds-sp-3); }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--ds-bg-container);
+         border:1px solid var(--ds-bd-subtle); border-radius:var(--ds-rd-md); box-shadow:var(--ds-sh-1);
+         padding:0; overflow:hidden; }
+  .col > h3 { flex:none; height:38px; display:flex; align-items:center; gap:8px; margin:0; padding:0 12px;
+              border-bottom:1px solid var(--ds-bd-subtle); }
+  #text-view, #preview-view, #group-list { max-height:none; flex:1; min-height:0; overflow:auto; }
+  #text-view, #preview-view { line-height:1.9; padding:12px 14px; }
+  #group-list { padding:10px 12px; }
+  #group-empty { padding:0 14px 14px; }
+  #work > .sheet-tabs { flex:none; padding:8px 12px 0; margin:0; }
+  .gitem { border:1px solid var(--ds-bd-subtle); border-radius:var(--ds-rd-sm); padding:8px 10px;
+           margin-bottom:8px; cursor:pointer; background:var(--ds-bg-container); }
+  .gitem:hover { border-color:var(--ds-bd-strong); background:var(--ds-bg-container-hover); }
+  .gitem.focused { border-color:var(--ds-brand); box-shadow:0 0 0 3px var(--ds-brand-focus); }
+  .gitem .val { font-weight:500; }
+  .ph-no { font-family:var(--ds-font-mono); background:var(--ds-ph-bg); color:var(--ds-ph-fg);
+           border-radius:3px; padding:0 4px; font-size:var(--ds-fs-xs); font-weight:600; margin-left:6px; }
+  .badge { font-size:var(--ds-fs-xs); border-radius:var(--ds-rd-full); padding:0 8px; }
+  .badge.on { background:var(--ds-success-light); color:var(--ds-success); }
+  .badge.off { background:var(--ds-bg-component); color:var(--ds-fg-secondary); }
+  .count-pill { background:var(--ds-bg-component); border-radius:var(--ds-rd-full); padding:0 8px; font-size:var(--ds-fs-xs); }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+
+  /* ================= 拖拽放置 + 居中轻提示 + 通用确认框 ================= */
+  /* 拖拽放置高亮：在「开始 / 还原」两个窗口主区域拖入文件时，给整块加虚线描边。 */
+  .dest.drop-active { outline:3px dashed var(--ds-brand); outline-offset:-10px;
+                      background:var(--ds-brand-light); }
+
+  /* 居中轻提示（无文件等）：浮在窗口正中，短暂自动消失，文案不带句号。 */
+  #center-toast { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+                  z-index:95; background:rgba(0,0,0,.80); color:#fff; font-size:15px;
+                  padding:14px 24px; border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.30);
+                  pointer-events:none; }
+  #center-toast[hidden] { display:none; }
+
+  /* 通用确认框（导出诊断包 / 导出调整历史 用）：给「赛博文盲」用户看清这是什么再确认。 */
+  #confirm-dialog { position:fixed; inset:0; z-index:90; display:flex;
+                    align-items:center; justify-content:center; }
+  #confirm-dialog[hidden] { display:none; }
+  #confirm-dialog .cf-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.45); }
+  #confirm-dialog .cf-dialog { position:relative; width:min(480px,92vw); background:#fff;
+                    border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.25); padding:20px 22px; }
+  #confirm-dialog .cf-head { font-size:16px; font-weight:600; margin-bottom:10px; }
+  #confirm-dialog .cf-body { font-size:14px; color:var(--ds-fg-secondary); line-height:1.75; }
+  #confirm-dialog .cf-body b { color:var(--ds-error); }
+  #confirm-dialog .cf-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+
+  /* 自定义文件选择按钮：隐藏原生 <input type=file> 自带的「未选择文件。」文案与悬浮提示，
+     改用我们自己样式的中文按钮，并把已选文件名单独显示出来。 */
+  .file-btn { display:inline-flex; align-items:center; padding:7px 14px; border-radius:var(--ds-rd-sm);
+              border:1px solid var(--ds-bd); background:var(--ds-bg-container); color:var(--ds-fg-primary);
+              cursor:pointer; font:inherit; }
+  .file-btn:hover { border-color:var(--ds-brand); }
+  .file-btn:active { background:var(--ds-bg-component); }
+  .visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+                     overflow:hidden; clip:rect(0,0,0,0); border:0; }
+  /* 已选文件：单独成行、整行宽度，放在操作区下方，避免挤动按钮或长文件名截断 */
+  .file-name { display:block; margin-top:6px; font-size:var(--ds-fs-sm); color:var(--ds-fg-secondary);
+               max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .file-name:empty { display:none; }
+  .file-name--set { color:var(--ds-brand); font-weight:600; padding:3px 0; }
+  .file-name--set::before { content:"✓ 已选择："; font-weight:600; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <h1>数据脱敏工具</h1>
+    <span class="sub">本地运行 · 数据不出本机</span>
+    <span id="file-chip" class="file-chip" hidden></span>
+    <span class="spacer"></span>
+    <span id="app-version" class="hint"></span>
+  </div>
+  <div class="shell-body">
+    <nav class="navrail" id="navrail">
+      <button class="nav-item active" data-dest="start">开始</button>
+      <button class="nav-item" data-dest="annotate" id="nav-annotate" disabled>标注</button>
+      <button class="nav-item" data-dest="export" id="nav-export" disabled>导出</button>
+      <button class="nav-item" data-dest="restore">还原</button>
+      <button class="nav-item" data-dest="library">脱敏库</button>
+      <div class="nav-foot">
+        <button id="diag-btn" class="nav-btn" title="打包本机运行日志与元数据（不含原文、不含脱敏内容），可放心发回">导出诊断包</button>
+        <button id="adjust-export-btn" class="nav-btn" title="导出当前未输出的『脱敏调整』记录——含所在整句原文，仅供作者分析，请勿外发">导出调整历史</button>
+        <label class="hint chk" style="font-size:12px"><input type="checkbox" id="verbose"> 详细日志</label>
+        <span id="diag-msg" class="hint"></span>
+        <span id="adjust-msg" class="hint"></span>
+      </div>
+    </nav>
+    <div class="routerview">
+      <!-- ① 开始：上传 -->
+      <div class="dest scroll active" id="dest-start">
+        <div class="card">
+          <h2>开始</h2>
+          <p class="hint">上传文书即可开始标注。软件采用「先标注、后脱敏、再双向校验」流程：所有脱敏项都需你确认后才写入。</p>
+          <div class="row" style="margin-top:14px">
+            <label class="file-btn" for="file-input" title="点击选择要处理的文件">选择文件
+              <input type="file" id="file-input" accept=".docx,.xlsx,.txt,.md,.markdown,.org" class="visually-hidden">
+            </label>
+            <button id="upload-btn" class="primary">上传并解析</button>
+            <span class="hint">支持 docx / xlsx / txt / md / org；PDF 请先转成 docx 或 md。</span>
+          </div>
+          <span class="file-name" id="file-name"></span>
+          <div id="upload-msg" class="error"></div>
+        </div>
+      </div>
+
+      <!-- ② 标注：工具栏 + 三栏工作台 -->
+      <div class="dest" id="work">
+        <div class="toolbar">
+          <span id="mode-hint" class="hint">规则引擎已自动扫出建议，你在列表中确认或删除；也可在左栏拖选文本手动标注，同一值会在全文多处自动归为一组。</span>
+          <!-- 可选类型各自独立勾选：金额与日期的「该不该脱」判断完全不同
+               （金额常要保留来核对账目，日期常要保留来看时效），绑成一个开关不灵活。 -->
+          <label class="hint chk"><input type="checkbox" id="opt-amount" class="opt-type" value="金额"> 识别金额</label>
+          <label class="hint chk"><input type="checkbox" id="opt-date" class="opt-type" value="日期"> 识别日期</label>
+          <!-- 原先「正文人名 / 整段门址」两个复选框已移除：它们是 checked+disabled、无 onchange、
+               state 里恒为 true 的**纯展示控件**，根本点不动，不是真开关。
+               其中「整段门址」更是在当前默认模型（bert4ner，MSRA PER/ORG/LOC）下**根本不生效**——
+               ner.rs::group_of() 只接 PER、刻意不接 LOC，故 detect_addresses 恒为空；
+               地址一律由正则整段门址 + 「有区划前缀无门牌号」兜底负责（见 api.rs）。
+               NER 可用性由后端自行判定（ner::is_loaded()），前端不再传 ner_person / ner_address
+               （后端语义：不传即开）。将来若换回 OpenMed（有 ADDR 组），门址 NER 会自动重新生效。 -->
+          <span class="hint" title="正文里孤立出现的人名由本地离线模型补充；不联网、不出文">本地离线模型已启用（正文人名）</span>
+          <!-- 灵敏度滑块已移除：阈值固定（准确性优先），各规则置信度已按社区通行值校准。 -->
+          <button id="detect-btn">自动识别</button>
+          <span class="hint">固定阈值 0.8</span>
+          <span style="flex:1"></span>
+          <button id="mask-btn" class="primary">执行脱敏</button>
+          <button id="clear-btn">清空全部</button>
+        </div>
+
+    <div class="sheet-tabs" id="sheet-tabs" hidden></div>
+
+    <div class="three">
+      <!-- 左栏：原文 -->
+      <div class="col">
+        <h3>原文</h3>
+        <div id="text-view"></div>
+      </div>
+      <!-- 中栏：脱敏清单 -->
+      <div class="col">
+        <h3>脱敏清单 <span id="group-count" class="count-pill">0</span></h3>
+        <div id="group-list"></div>
+        <div id="group-empty" class="hint">还没有脱敏项。在左栏拖选文本即可标注。</div>
+      </div>
+      <!-- 右栏：预览 -->
+      <div class="col">
+        <h3>脱敏后预览</h3>
+        <div id="preview-view"></div>
+      </div>
+    </div>
+
+        <div id="mask-msg" class="error" style="padding:0 var(--ds-sp-3) var(--ds-sp-2)"></div>
+      </div><!-- /标注 -->
+
+
+      <!-- ③ 导出 -->
+      <div class="dest scroll" id="dest-export">
+        <div class="card" id="result">
+          <div class="ok">脱敏完成，双向校验已通过。</div>
+          <div class="row" style="margin-top:12px">
+            <button id="dl-masked" class="primary">下载脱敏文件（原格式）</button>
+            <button id="dl-md">以 md 格式导出</button>
+            <button id="dl-txt">以 txt 格式导出</button>
+            <button id="view-mapping-btn">查看映射表</button>
+          </div>
+          <div class="hint" style="margin-top:10px">映射表已保存在本机，可在「还原」页选择；如需带走，点「导出映射表」。</div>
+        </div>
+      </div>
+
+      <!-- ④ 还原（两步向导为后续；本次先保留原控件） -->
+      <div class="dest scroll" id="dest-restore">
+        <div class="card">
+          <h2>还原</h2>
+          <div class="hint" style="margin-bottom:8px">上传脱敏文件，选择对应的本机映射表（下拉框）或上传映射表文件后还原。<b>本机脱敏过的文件通常无需映射表</b>——脱敏库会自动回填；跨机文件或片段值仍建议提供映射表。也可「导入映射表」把外部 mapping.json 存为本机任务反复使用。</div>
+          <div class="row">
+            <label class="file-btn" for="restore-file" title="点击选择要还原的脱敏文件">选择脱敏文件
+              <input type="file" id="restore-file" class="visually-hidden">
+            </label>
+            <span class="hint">映射表：</span>
+            <div class="mapping-dd">
+              <button type="button" id="mapping-dd-btn" class="dd-btn">（选择本机映射表）</button>
+              <div id="mapping-panel" class="dd-panel" hidden></div>
+            </div>
+            <input type="hidden" id="restore-mapping-select" value="">
+            <label class="file-btn" for="restore-mapping" title="点击上传映射表文件">选择映射表文件
+              <input type="file" id="restore-mapping" accept=".json" class="visually-hidden">
+            </label>
+            <button id="restore-btn" class="primary">还原并下载</button>
+          </div>
+          <span class="file-name" id="restore-file-name"></span>
+          <span class="file-name" id="restore-mapping-name"></span>
+            <button id="export-mapping-btn">导出映射表</button>
+            <button id="import-mapping-btn">导入映射表</button>
+            <input type="file" id="import-mapping" accept=".json" hidden>
+          </div>
+          <div id="restore-msg" class="error"></div>
+        </div>
+      </div>
+
+      <!-- ⑤ 脱敏库 -->
+      <div class="dest scroll" id="dest-library">
+        <div class="card" id="lib-body">
+            <h2>脱敏库</h2>
+            <div class="hint" style="margin-bottom:8px">已脱敏过的字段值、手动加入的值，以及内置地名都会收录于此；打开文档时命中的值会自动建议。可按类别筛选，或在顶部新增。</div>
+            <div class="row" style="margin-bottom:8px">
+              <input type="text" id="lib-add-input" placeholder="新增到脱敏库的值…" style="flex:1;min-width:160px">
+              <select id="lib-add-cat"></select>
+              <button id="lib-add-btn" class="primary">加入脱敏库</button>
+            </div>
+            <div class="row" style="margin-bottom:8px">
+              <select id="lib-cat-filter"><option value="">全部类别</option></select>
+              <input type="text" id="lib-search" placeholder="搜索脱敏库…" style="flex:1;min-width:160px">
+              <span id="lib-count" class="count-pill">0</span>
+              <button id="lib-clear-custom-btn" type="button" title="清空类别为「自定义」的全部条目（不可恢复）" style="background:var(--danger);border-color:var(--danger);color:#fff">清空自定义</button>
+            </div>
+            <div id="lib-list"></div>
+          </div>
+      </div>
+    </div><!-- /routerview -->
+  </div><!-- /shell-body -->
+  <div class="statusbar">
+    <span class="dot"></span><span>引擎就绪</span>
+    <span id="sb-file"></span>
+    <span id="sb-counts"></span>
+  </div>
+</div><!-- /shell -->
+
+<!-- 就近编辑面板 -->
+<div id="field-panel" hidden></div>
+
+<!-- 查看映射表模态 -->
+<div id="mapping-view" hidden>
+  <div class="mv-backdrop"></div>
+  <div class="mv-dialog" role="dialog" aria-modal="true">
+    <div class="mv-head">
+      <span id="mv-title">映射表</span>
+      <div class="mv-actions">
+        <button id="mv-copy">复制</button>
+        <button id="mv-close">关闭</button>
+      </div>
+    </div>
+    <div class="mv-body">
+      <table class="mv-table">
+        <thead><tr><th>占位符</th><th>原值</th></tr></thead>
+        <tbody id="mv-rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 居中轻提示（无文件等） -->
+<div id="center-toast" hidden></div>
+
+<!-- 通用确认框（导出诊断包 / 导出调整历史）：先讲清功能再让用户确认 -->
+<div id="confirm-dialog" hidden>
+  <div class="cf-backdrop"></div>
+  <div class="cf-dialog" role="dialog" aria-modal="true">
+    <div class="cf-head" id="cf-title"></div>
+    <div class="cf-body" id="cf-text"></div>
+    <div class="cf-actions">
+      <button id="cf-cancel">取消</button>
+      <button id="cf-ok" class="primary">确认并下载</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// 约定：所有偏移均以「码点」为单位。
+// JS 字符串索引是 UTF-16 码元，Rust 端是码点（chars().count()）。文档里一旦
+// 出现代理对（emoji、部分生僻汉字），两者就会错位。故全程用 Array.from 得到的
+// 码点数组索引，与后端保持一致。
+// ---------------------------------------------------------------------------
+
+const state = {
+  taskId: null, filename: '', chars: [],
+  groups: [], nextGid: 1,
+  pendingGid: null,
+  optionalTypes: [], // 纳入建议的可选类型（金额/日期），默认都不纳入
+  // 注：不再有 nerPerson / nerAddress —— 原先它们是「checked+disabled」的假开关，
+  // 现改为**不在 /api/analyze 请求里传这两个字段**，由后端默认值决定（不传即开）。
+  focusedGid: null, // 中栏当前高亮项（聚焦时自动展开其「出现位置」）
+  inLibrary: new Set(), // 已知在脱敏库中的值（建议项 + 手动加入）
+  placeholders: {},     // 值→内容寻址占位符（来自 /api/analyze，预览与实际落盘一致）
+  // 表格视图（xlsx）专用状态
+  sheetMode: false,
+  cells: [],            // 全部单元格视图（来自后端 cell_views）
+  sheets: [],           // 工作表序号列表
+  grid: {},             // sheet -> { rows: Map(row->[cell]), maxCol, rowMin, rowMax }
+  activeSheet: 0,
+  // 自适应布局：列宽按「同列最宽」计算并受容器宽度约束，行高按「同行最高」计算。
+  // 行高可变，故虚拟滚动改用「偏移表 + 渲染后实测校正」，不再假设固定行高。
+  colWidths: [],        // 当前工作表的列宽（px），下标 = 列号-1
+  rowHeights: [],       // 每行的高度（px），下标 = 行序号 0..totalRows-1
+  rowOffsets: [],       // 行偏移前缀和，长度 totalRows+1
+  totalRows: 0,
+  layoutKey: '',        // 布局缓存键（工作表 + 容器宽度 + 单元格数）
+  renderWindow: {},     // 各容器当前渲染的行窗口 { containerId: {first,last,gen} }
+  renderGen: 0,         // 渲染代次：每次「换工作表/换文件/容器宽度变化」+1，
+  focusCell: null,      // 当前聚焦的单元格 {sheet,row,col}，由 renderSheet 持续高亮，
+                        // 直到下一次聚焦（点击中栏字段 / 点击某单元格）；滚动重绘不清除。
+  focusedOcc: null,     // 表格视图下当前精确高亮的脱敏段 {gid, occ}；renderCellContent 据此给
+                        // 对应 <mark>/<span class="ph"> 加 flash，使「中栏点击定位」与 docx 一样
+                        // 只精确高亮被点中的那一段，而非整格；滚动重绘不清除。
+};
+
+// 表格布局常量（与 CSS 中的字号保持一致，估算行高才准）
+const SHEET_FONT = 13;      // 字号（px），与 table.sheet-table 的 font-size 一致
+const SHEET_LINE_H = 19;    // 单行行高（px）
+const SHEET_PAD_X = 18;     // 单元格左右内边距 + 边框
+const SHEET_PAD_Y = 8;      // 单元格上下内边距 + 边框
+const SHEET_MIN_COL = 80;   // 列最小宽度（低于此宽度换行会把单元格撑成几十行，宁可横向滚动）
+const SHEET_MAX_COL = 320;  // 列最大宽度
+const SHEET_ROWNUM_W = 44;  // 行号列宽度
+
+const $ = (id) => document.getElementById(id);
+const escapeHtml = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const escapeAttr = (s) => escapeHtml(s).replace(/"/g,'&quot;');
+
+// 脱敏库类别词表（与后端 LIB_CATEGORIES 一致，精简自原 14 类）。
+// 仅作库内元数据 / 筛选用，不影响脱敏占位（占位符由后端按值内容寻址统一生成）。
+// 2026-09-07 曾把「地名」拆成「行政区划」（全称）+「地名」（裸名）两类；2026-09-30 统一回 lacuna 标准：
+// 地区类只保留「地名」一类（内置地名与用户地名都用「地名」），不再出现「行政区划」类别。
+const CATEGORIES = ['门址','人名','电话','账号','证件号','编号','名称','自定义','地名'];
+
+// 类别下拉的**顺序 = 按库容（该类别的条目数）从大到小**；CATEGORIES 里没有的后端类别也补上。
+// 计数来自 `/api/library/categories`（只报计数、不含值）。取不到时退回 CATEGORIES 原顺序，不阻塞。
+let libCatCounts = {};
+function orderedCategories() {
+  const base = CATEGORIES.slice();
+  const extra = Object.keys(libCatCounts).filter(c => !base.includes(c));
+  return base.concat(extra).sort((a, b) =>
+    (libCatCounts[b] || 0) - (libCatCounts[a] || 0) ||      // 库容降序
+    base.indexOf(a) - base.indexOf(b));                     // 同数或缺失时按原顺序，保证稳定
+}
+async function loadCategoryCounts() {
+  try {
+    const r = await fetch('/api/library/categories');
+    if (!r.ok) return;
+    const d = await r.json();
+    libCatCounts = {};
+    for (const [c, n] of (d.categories || [])) libCatCounts[c] = n;
+  } catch (_) { /* 取不到就按原顺序 */ }
+}
+const minStart = (g) => g.occurrences.reduce((m,o)=>Math.min(m,o.start), Infinity);
+const findGroup = (value) =>
+  state.groups.find((g)=>g.value===value);
+
+// 找出正文中某子串的全部出现位置（非重叠）。
+function allOccurrences(value) {
+  const v = Array.from(value);
+  if (v.length === 0) return [];
+  const res = [];
+  const chars = state.chars;
+  for (let i=0; i+v.length<=chars.length; i++) {
+    let ok = true;
+    for (let j=0; j<v.length; j++) if (chars[i+j] !== v[j]) { ok=false; break; }
+    if (ok) { res.push({ start:i, end:i+v.length, excluded:false }); i += v.length-1; }
+  }
+  return res;
+}
+
+// 取某值的预览占位符：后端 /api/analyze 已按「值」解析好内容寻址占位符
+// （【base62】，同一值处处同号），前端直接查表；缺失时退化为「【值】」仅防破版，
+// 真正脱敏由后端 resolve_placeholder 兜底。
+function placeholderFor(value) {
+  return (state.placeholders && state.placeholders[value]) || ('【' + value + '】');
+}
+
+// 计算鼠标选区在整篇文本中的码点偏移。
+function codePointOffsetOf(container, node, offset) {
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  range.setEnd(node, offset);
+  return Array.from(range.toString()).length;
+}
+function getSelectionRange() {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount===0) return null;
+  const range = sel.getRangeAt(0);
+  if (range.collapsed) return null;
+  const container = $('text-view');
+  if (!container.contains(range.commonAncestorContainer)) return null;
+  const start = codePointOffsetOf(container, range.startContainer, range.startOffset);
+  const end = codePointOffsetOf(container, range.endContainer, range.endOffset);
+  return end > start ? { start, end } : null;
+}
+
+// ---------------------------------------------------------------- 渲染
+
+// 渲染左栏原文。
+// 关键改动：把每个「源换行分隔的行」用 <span class="line" data-li="N"> 包起来，
+// 这样既不影响 pre-wrap 的换行与鼠标选区（codePointOffsetOf 走 Range，天然兼容嵌套
+// 元素），又能让同步滚动按「段首」建锚——两栏换行结构完全一致（占位符不含 \n），
+// 故 data-li 可直接 1:1 配对，锚点密度远高于仅按脱敏项建锚，残差被限制在单行内。
+// 跨行的脱敏项会被拆成多段（同一 gid+occ），跳转/高亮仍按 gid+occ 命中。
+function renderText() {
+  const container = $('text-view');
+  const marks = [];
+  for (const g of state.groups)
+    g.occurrences.forEach((o, idx) =>
+      marks.push({ start:o.start, end:o.end, gid:g.gid, excluded:o.excluded, occ:idx }));
+  marks.sort((a,b)=>a.start-b.start);
+  const chars = state.chars;
+  const cover = new Array(chars.length).fill(-1);
+  marks.forEach((m, mi) => { for (let i=m.start; i<m.end; i++) cover[i] = mi; });
+
+  let html = '';
+  let li = 0;          // 当前行号
+  let curMi = -1;      // 当前已打开的 mark 下标（-1 表示无）
+  let buf = '';        // 当前「纯文本段」缓冲（mark 之间 / 行首）
+  const flushBuf = () => { if (buf) { html += escapeHtml(buf); buf = ''; } };
+  const closeMark = () => { if (curMi >= 0) { html += '</mark>'; curMi = -1; } };
+  const openLine = () => { html += `<span class="line" data-li="${li}">`; };
+  const closeLine = () => { closeMark(); flushBuf(); html += '</span>'; };
+
+  openLine();
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    if (c === '\n') { closeLine(); html += '\n'; li++; openLine(); continue; }
+    const cv = cover[i];
+    if (cv !== curMi) {
+      // 边界：先收口「当前状态」——在 mark 内则闭合 mark，否则把纯文本缓冲刷出；
+      // 再按新覆盖打开 mark（若有）。注意被标注字符必须写进 mark 内部，不能落到 buf。
+      if (curMi >= 0) closeMark(); else flushBuf();
+      if (cv >= 0) {
+        const m = marks[cv];
+        const cls = m.excluded ? 'mark excluded' : 'mark';
+        html += `<mark class="${cls}" data-gid="${m.gid}" data-occ="${m.occ}">`;
+        curMi = cv;
+      }
+    }
+    if (curMi >= 0) html += escapeHtml(c); // 落在 mark 内 -> 写进 mark
+    else buf += c;                          // 否则累计纯文本
+  }
+  closeLine();
+  container.innerHTML = (chars.length > 0) ? html
+    : '<span class="hint">（文档没有可显示的文本内容）</span>';
+}
+
+function renderGroups() {
+  const box = $('group-list');
+  $('group-count').textContent = String(state.groups.length);
+  if (state.groups.length === 0) { box.innerHTML=''; return; }
+  const rows = [...state.groups]
+    .sort((a,b)=>minStart(a)-minStart(b))
+    .map((g)=>{
+      const total = g.occurrences.length;
+      const enabled = g.occurrences.filter(o=>!o.excluded).length;
+      const status = enabled===0 ? '<span class="badge off">已排除</span>'
+                  : enabled<total ? `<span class="badge off">部分排除 ${enabled}/${total}</span>`
+                  : `<span class="badge on">已选 ${total}</span>`;
+      const src = g.source==='division' ? '<span class="src">（地名）</span>'
+                : g.source==='user' ? '<span class="src">（脱敏库）</span>'
+                : g.source==='ner' ? '<span class="src">（NER识别）</span>'
+                : g.source==='auto' ? '<span class="src">（识别）</span>'
+                : ''; // manual 不显示来源
+      const shown = g.value;   // 中栏完整展示被脱敏字段值，超宽由 CSS 换行（不再截断）
+      // 「出现位置」：仅当该项被聚焦（.focused）时由 CSS 展开；复选框切换排除，
+      // 点击字段文本触发左右栏跳转并高亮（见 group-list 的事件委托）。
+      const occsHtml = (() => {
+        // 表格视图下某个值可能命中成千上万个单元格，逐条渲染复选框会再次撑爆 DOM，
+        // 故只渲染前若干条并给出余量提示；排除整组仍可点上方「已排除」徽标旁的勾选。
+        const MAX = state.sheetMode ? 50 : g.occurrences.length;
+        const shown = g.occurrences.slice(0, MAX);
+        const rows = shown.map((o,i)=>{
+          const txt = o.text || state.chars.slice(o.start,o.end).join('') || '';
+          const oshow = txt;   // 出现位置也完整展示，超宽由 CSS 换行
+          return `<div class="occ-row">
+            <input type="checkbox" data-occ="${i}" ${o.excluded?'':'checked'}>
+            <span class="occ-text" data-occ="${i}" title="${escapeHtml(txt)}">${escapeHtml(oshow)}</span>
+          </div>`;
+        }).join('');
+        const more = g.occurrences.length > MAX
+          ? `<div class="occ-row hint">…还有 ${g.occurrences.length - MAX} 处（表格视图内逐格操作）</div>` : '';
+        return rows + more;
+      })();
+      const hasPh = g.occurrences.some(o=>!o.excluded);
+      const ph = hasPh ? (g.placeholder || placeholderFor(g.value)) : '';
+      return `<div class="gitem${g.gid===state.focusedGid?' focused':''}" data-gid="${g.gid}">
+        <div class="val-line"><span class="val" title="${escapeHtml(g.value)}">${escapeHtml(shown)}</span></div>
+        <div class="top">
+          ${hasPh ? `<span class="ph-no" title="占位符">${escapeHtml(ph)}</span>` : ''}
+          ${status}
+        </div>
+        <div class="meta">共 ${total} 处 ${src}</div>
+        <div class="occs">${occsHtml}</div>
+      </div>`;
+    }).join('');
+  box.innerHTML = rows;
+}
+
+function renderPreview() {
+  const occs = [];
+  for (const g of state.groups) {
+    const ph = g.placeholder || placeholderFor(g.value);
+    g.occurrences.forEach((o, idx) => {
+      if (!o.excluded)
+        occs.push({ start:o.start, end:o.end, gid:g.gid, occ:idx, ph });
+    });
+  }
+  occs.sort((a,b)=>a.start-b.start);
+  const chars = state.chars;
+  const cover = new Array(chars.length).fill(-1);
+  occs.forEach((o, oi) => { for (let i=o.start; i<o.end; i++) cover[i] = oi; });
+
+  let html = '';
+  let li = 0, curOi = -1; let buf = '';
+  const emitted = new Set(); // 跨行占位符只写入一次占位符文本，避免重复
+  const flushBuf = () => { if (buf) { html += escapeHtml(buf); buf = ''; } };
+  const closePh = () => { if (curOi >= 0) { html += '</span>'; curOi = -1; } };
+  const openLine = () => { html += `<span class="line" data-li="${li}">`; };
+  const closeLine = () => { closePh(); flushBuf(); html += '</span>'; };
+
+  openLine();
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    if (c === '\n') { closeLine(); html += '\n'; li++; openLine(); continue; }
+    const cv = cover[i];
+    if (cv !== curOi) {
+      if (curOi >= 0) closePh(); else flushBuf();
+      if (cv >= 0) {
+        const o = occs[cv];
+        // 右栏显示「占位符」本身（脱敏后的形态），不是原文。占位符不随原文逐字，
+        // 故仅在打开 .ph 时一次性写入 o.ph；同一出现位置跨行时补空 .ph 不重复写。
+        const inner = emitted.has(cv) ? '' : escapeHtml(o.ph);
+        emitted.add(cv);
+        html += `<span class="ph" data-gid="${o.gid}" data-occ="${o.occ}">${inner}</span>`;
+        curOi = cv;
+      }
+    }
+    // 占位符覆盖的原文字符不再输出，避免右栏露出原文。
+    if (curOi < 0) buf += c;
+  }
+  closeLine();
+  $('preview-view').innerHTML = (chars.length > 0) ? html
+    : '<span class="hint">（尚无脱敏项）</span>';
+}
+
+function renderAll() {
+  if (state.sheetMode) {
+    state.renderGen++;        // 新代次：换表/换文件/容器宽度变化都走这里
+    renderSheetTabs();
+    renderSheet('text-view', false);
+    renderGroups();
+    renderSheet('preview-view', true);
+  } else {
+    renderText();
+    renderGroups();
+    renderPreview();
+  }
+  updateStatus();
+}
+
+// ---------------------------------------------------------------- 表格视图（xlsx）
+
+function colLetter(n) {
+  let s = '';
+  while (n > 0) { n--; s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26); }
+  return s;
+}
+
+// 把后端 cell_views 按工作表分组，并算出每个表的行/列边界（供虚拟滚动）。
+function buildGrid(cells) {
+  const grid = {};
+  const sheets = [];
+  for (const c of cells) {
+    if (!(c.sheet in grid)) {
+      grid[c.sheet] = { rows: new Map(), maxCol: 0, rowMin: Infinity, rowMax: 0 };
+      sheets.push(c.sheet);
+    }
+    const g = grid[c.sheet];
+    if (!g.rows.has(c.row)) g.rows.set(c.row, []);
+    g.rows.get(c.row).push(c);
+    g.maxCol = Math.max(g.maxCol, c.col);
+    g.rowMin = Math.min(g.rowMin, c.row);
+    g.rowMax = Math.max(g.rowMax, c.row);
+  }
+  for (const s of Object.keys(grid)) {
+    const g = grid[s];
+    g.rows = new Map([...g.rows.entries()].sort((a, b) => a[0] - b[0]));
+  }
+  state.grid = grid;
+  state.sheets = sheets.sort((a, b) => a - b);
+}
+
+function renderSheetTabs() {
+  const bar = $('sheet-tabs');
+  bar.hidden = false;
+  bar.innerHTML = state.sheets
+    .map((s) => `<button data-sheet="${s}" class="${s === state.activeSheet ? 'active' : ''}">工作表 ${s + 1}</button>`)
+    .join('');
+}
+
+// 单个单元格的渲染内容：把落在 [cell.start, cell.end) 内的各 occurrence 子段高亮。
+// - 占位符视图（masked=true）：命中段替换为 <span class="ph">【base62 内容寻址】</span>；
+// - 原始视图（masked=false）：命中段保留原文、包 <mark> 高亮，并带 data-gid/data-occ。
+// 这样手动拖选「单元格内一段」后，左右两栏都能立刻看到被脱敏的那一段高亮，
+// 而不是像旧实现那样：占位符被当普通文本输出、原文视图完全无标记，导致「划取部分没有高亮」。
+function renderCellContent(cell, masked, _nums) {
+  const segs = []; // {s, e, gid, occ, excluded, ph}
+  for (const g of state.groups) {
+    const ph = g.placeholder || placeholderFor(g.value);
+    for (let i = 0; i < g.occurrences.length; i++) {
+      const o = g.occurrences[i];
+      if (o.end <= cell.start || o.start >= cell.end) continue;
+      const s = Math.max(0, o.start - cell.start);
+      const e = Math.min(Array.from(cell.value).length, o.end - cell.start);
+      segs.push({
+        s, e, gid: g.gid, occ: i,
+        excluded: !!o.excluded,
+        ph: o.excluded ? null : ph,
+      });
+    }
+  }
+  segs.sort((a, b) => a.s - b.s);
+  const chars = Array.from(cell.value);
+  let out = '', cur = 0;
+  for (const sg of segs) {
+    if (sg.s > cur) out += escapeHtml(chars.slice(cur, sg.s).join(''));
+    const segText = escapeHtml(chars.slice(sg.s, sg.e).join(''));
+    const cls = `data-gid="${sg.gid}" data-occ="${sg.occ}"`;
+    // 表格视图下「中栏点击定位」精确高亮：命中 focusedOcc 的那一段加 flash（与 docx 一致）
+    const flash = (state.focusedOcc && state.focusedOcc.gid === sg.gid && state.focusedOcc.occ === sg.occ) ? ' flash' : '';
+    if (sg.excluded) {
+      // 排除项：原始视图加删除线 mark；占位符视图保持原文（不替换为占位符）
+      out += (!masked)
+        ? `<mark class="mark excluded${flash}" ${cls}>${segText}</mark>`
+        : segText;
+    } else if (masked && sg.ph) {
+      out += `<span class="ph${flash}" ${cls}>${escapeHtml(sg.ph)}</span>`;
+    } else if (!masked) {
+      out += `<mark class="mark${flash}" ${cls}>${segText}</mark>`;
+    } else {
+      out += segText; // 占位符视图下无编号的组（罕见）：保持原文
+    }
+    cur = Math.max(cur, sg.e);
+  }
+  if (cur < chars.length) out += escapeHtml(chars.slice(cur).join(''));
+  return out;
+}
+
+// 文本像素宽度估算（不依赖 DOM 测量，便于对整表做一次 O(N) 布局计算）。
+// 中文/全角按 1 个字号宽，ASCII 按 0.55 个字号宽。
+function estWidth(s) {
+  let w = 0;
+  for (const ch of s) w += (ch.codePointAt(0) > 0x2e80 ? SHEET_FONT : SHEET_FONT * 0.55);
+  return w;
+}
+
+// 把列宽压缩到可用宽度内：只压缩**高于最小宽度**的列（水填充式），
+// 让宽列承担主要压缩量，而不是把每列一起等比压扁。
+// 全部压到最小宽度仍放不下时接受溢出，交给横向滚动 —— 列数太多时强行
+// 「不超窗口」反而会把每个单元格撑成几十行，更难看。
+function shrinkToFit(cols, avail, min) {
+  const res = cols.slice();
+  let total = res.reduce((a, b) => a + b, 0);
+  let guard = 0;
+  while (total > avail + 0.5 && guard++ < 60) {
+    const flexTotal = res.reduce((a, w) => a + (w > min + 0.5 ? w : 0), 0);
+    const flexCount = res.filter((w) => w > min + 0.5).length;
+    const reducible = flexTotal - min * flexCount;
+    if (flexCount === 0 || reducible <= 0.5) break;   // 已全部到最小宽度
+    const take = Math.min(total - avail, reducible);
+    const ratio = take / flexTotal;
+    for (let i = 0; i < res.length; i++)
+      if (res[i] > min + 0.5) res[i] = Math.max(min, res[i] - res[i] * ratio);
+    total = res.reduce((a, b) => a + b, 0);
+  }
+  return res;
+}
+
+// 计算当前工作表的列宽与行高：
+// - 列宽 = 同列最宽内容，限幅 [MIN, MAX]，且总宽必须不超过容器可用宽度；
+//   超出则等比压缩 —— 单元格内会自动换行，既不撑破预览窗口，也不需要横向滚动。
+// - 行高 = 该行各单元格按所在列宽折行后的行数 × 行高，取「同行最高」。
+function computeSheetLayout() {
+  const g = state.grid[state.activeSheet];
+  if (!g) return;
+  const avail = Math.max(200, ($('text-view').clientWidth || 520) - SHEET_ROWNUM_W - 2);
+  const maxCol = g.maxCol;
+  const totalRows = g.rowMax - g.rowMin + 1;
+
+  // 1) 各列最宽内容
+  const widest = new Array(maxCol).fill(0);
+  for (const rowCells of g.rows.values())
+    for (const c of rowCells) {
+      const w = estWidth(c.value);
+      if (w > widest[c.col - 1]) widest[c.col - 1] = w;
+    }
+  // 2) 限幅；放不下才压缩，且只在压缩确实能放下时才采用 ——
+  //    压缩到最小列宽仍放不下时，说明列数过多，此时保留自然列宽交给横向滚动，
+  //    好过把每列压到几十像素、把单元格撑成几十行。
+  const cols = widest.map((w) =>
+    Math.min(SHEET_MAX_COL, Math.max(SHEET_MIN_COL, Math.ceil(w) + SHEET_PAD_X)));
+  const total = cols.reduce((a, b) => a + b, 0);
+  if (total > avail) {
+    const shrunk = shrinkToFit(cols, avail, SHEET_MIN_COL);
+    state.colWidths = shrunk.reduce((a, b) => a + b, 0) <= avail ? shrunk : cols;
+  } else {
+    state.colWidths = cols;
+  }
+
+  // 3) 行高：按每列可容纳宽度折行，取同行最大行数
+  const heights = new Array(totalRows);
+  const offsets = new Array(totalRows + 1);
+  let acc = 0;
+  for (let idx = 0; idx < totalRows; idx++) {
+    const rr = g.rowMin + idx;
+    const rowCells = g.rows.get(rr) || [];
+    let lines = 1;
+    for (const c of rowCells) {
+      const inner = Math.max(1, (state.colWidths[c.col - 1] || SHEET_MIN_COL) - SHEET_PAD_X);
+      // pre-wrap 会保留单元格内已有的换行，故显式换行也要计入行数
+      const explicitLines = (c.value.match(/\n/g) || []).length;
+      lines = Math.max(lines, Math.ceil(estWidth(c.value) / inner) + explicitLines);
+    }
+    const h = lines * SHEET_LINE_H + SHEET_PAD_Y;
+    heights[idx] = h;
+    offsets[idx] = acc;
+    acc += h;
+  }
+  offsets[totalRows] = acc;
+  state.rowHeights = heights;
+  state.rowOffsets = offsets;
+  state.totalRows = totalRows;
+}
+
+// 布局缓存：工作表切换、容器宽度变化或数据变化时重算
+function ensureSheetLayout(force) {
+  const key = `${state.activeSheet}|${$('text-view').clientWidth || 0}|${state.cells.length}`;
+  if (!force && state.layoutKey === key) return;
+  state.layoutKey = key;
+  computeSheetLayout();
+}
+
+// 偏移表中满足 offset <= y 的最大行下标（二分）
+function rowIndexAt(y) {
+  const offs = state.rowOffsets;
+  let lo = 0, hi = offs.length - 1, ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (offs[mid] <= y) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return ans;
+}
+
+function rebuildOffsets() {
+  const offs = state.rowOffsets;
+  let acc = 0;
+  for (let i = 0; i < state.rowHeights.length; i++) { offs[i] = acc; acc += state.rowHeights[i]; }
+  offs[state.rowHeights.length] = acc;
+}
+
+// 只更新占位行高度（不整体重绘，避免与滚动校正互相触发）
+function updateSpacers(cont) {
+  const win = state.renderWindow[cont.id];
+  if (!win) return;
+  const top = cont.querySelector('tbody tr.spacer:first-child td');
+  const bot = cont.querySelector('tbody tr.spacer:last-child td');
+  if (top) top.style.height = state.rowOffsets[win.first] + 'px';
+  if (bot) bot.style.height = (state.rowOffsets[state.totalRows] - state.rowOffsets[win.last + 1]) + 'px';
+}
+
+// 渲染后实测校正：用刚渲染那一栏的真实行高修正估算值（估算偏小时内容仍完整展开）。
+// 只有当左右两栏处于同一渲染代次（同一工作表、同一套列宽）时，才把两栏的行高取
+// 较大值 —— 否则刚切表/换文件时另一栏还是上一代的 DOM，会把上一代的行高错误地
+// 套到新表上（表现为某些行莫名被拉高）。
+function syncRowHeights(justRenderedId) {
+  const L = $('text-view'), R = $('preview-view');
+  const lw = state.renderWindow['text-view'], rw = state.renderWindow['preview-view'];
+  const sameGen = !!(lw && rw && lw.gen === rw.gen);
+  const pick = (root, into) => {
+    for (const tr of root.querySelectorAll('tbody tr[data-idx]')) {
+      const i = Number(tr.dataset.idx);
+      into.set(i, Math.max(into.get(i) || 0, tr.getBoundingClientRect().height));
+    }
+  };
+  const m = new Map();
+  pick($(justRenderedId), m);
+  if (sameGen) pick(justRenderedId === 'text-view' ? R : L, m);
+
+  let changed = false;
+  for (const [i, h] of m)
+    if (h > 0 && Math.abs(h - state.rowHeights[i]) > 0.5) { state.rowHeights[i] = h; changed = true; }
+  if (!changed) return;
+  rebuildOffsets();
+  for (const root of [L, R])
+    for (const tr of root.querySelectorAll('tbody tr[data-idx]'))
+      tr.style.height = state.rowHeights[Number(tr.dataset.idx)] + 'px';
+  updateSpacers(L); updateSpacers(R);
+}
+
+function renderSheet(containerId, masked) {
+  const cont = $(containerId);
+  cont.classList.add('sheet');
+  const sheet = state.activeSheet;
+  const g = state.grid[sheet];
+  if (!g) { cont.innerHTML = ''; return; }
+  ensureSheetLayout(false);
+  const totalRows = state.totalRows;
+  if (!totalRows) { cont.innerHTML = ''; return; }
+  const maxCol = g.maxCol;
+  const viewH = cont.clientHeight || 520;
+  const scrollTop = cont.scrollTop;
+  // 可变行高：按偏移表定位可见行窗口（二分找首行，再向后扩到视口底）
+  const first = Math.max(0, rowIndexAt(scrollTop) - 2);
+  let last = first;
+  while (last + 1 < totalRows && state.rowOffsets[last + 1] < scrollTop + viewH) last++;
+  last = Math.min(totalRows - 1, last + 2);
+  state.renderWindow[containerId] = { first, last, gen: state.renderGen };
+
+  const nums = null; // renderCellContent 现按值查 content-addressed 占位符，不再需要编号表
+  const cols = state.colWidths;
+  const tableW = SHEET_ROWNUM_W + cols.reduce((a, b) => a + b, 0);
+  const head = `<thead><tr><th style="width:${SHEET_ROWNUM_W}px"></th>${cols.map((w, i) => `<th style="width:${w}px">${colLetter(i + 1)}</th>`).join('')}</tr></thead>`;
+  let body = `<tr class="spacer"><td colspan="${maxCol + 1}" style="height:${state.rowOffsets[first]}px"></td></tr>`;
+  for (let idx = first; idx <= last; idx++) {
+    const rr = g.rowMin + idx;
+    const rowCells = g.rows.get(rr) || [];
+    const byCol = {};
+    for (const c of rowCells) byCol[c.col] = c;
+    let tds = `<th class="rownum">${rr}</th>`;
+    for (let col = 1; col <= maxCol; col++) {
+      const c = byCol[col];
+      if (!c) { tds += '<td class="cell empty"></td>'; continue; }
+      const fc = state.focusCell;
+      const focused = (fc && fc.sheet === c.sheet && fc.row === c.row && fc.col === c.col) ? ' focused-cell' : '';
+      // 单元格本身不高亮（不论部分还是整格脱敏）；仅被脱敏的那段文字由
+      // renderCellContent 包成 <mark> / <span class="ph"> 精确高亮。
+      const cls = focused;
+      // 内容完整展示（列宽不足时由 CSS 换行），不再截断成省略号；
+      // 命中的子段在原始视图加 <mark>、占位符视图加 <span class="ph">，两端都高亮
+      const disp = renderCellContent(c, masked, nums);
+      tds += `<td class="cell ${cls}" data-sheet="${c.sheet}" data-row="${c.row}" data-col="${c.col}">${disp}</td>`;
+    }
+    body += `<tr data-idx="${idx}" style="height:${state.rowHeights[idx]}px">${tds}</tr>`;
+  }
+  body += `<tr class="spacer"><td colspan="${maxCol + 1}" style="height:${state.rowOffsets[totalRows] - state.rowOffsets[last + 1]}px"></td></tr>`;
+  cont.innerHTML = `<table class="sheet-table" style="width:${tableW}px">${head}<tbody>${body}</tbody></table>`;
+  syncRowHeights(containerId);
+}
+
+// 单元格内拖选的码点偏移（无选区返回 null）
+function inCellOffsets(td) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const r = sel.getRangeAt(0);
+  if (!td.contains(r.startContainer) || !td.contains(r.endContainer)) return null;
+  const s = codePointOffsetOf(td, r.startContainer, r.startOffset);
+  const e = codePointOffsetOf(td, r.endContainer, r.endOffset);
+  return s < e ? { start: s, end: e } : null;
+}
+
+function cellFromTd(td) {
+  const sheet = Number(td.dataset.sheet), row = Number(td.dataset.row), col = Number(td.dataset.col);
+  return (state.grid[sheet].rows.get(row) || []).find((c) => c.col === col);
+}
+
+// 把一组 occurrence（已去重）建成一个脱敏组。
+function addCellGroup(occs, source, value, openPanel) {
+  const seen = new Set();
+  const uniq = [];
+  for (const o of occs) {
+    const key = `${o.start}_${o.end}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniq.push(o);
+  }
+  if (uniq.length === 0) return;
+  const g = { gid: state.nextGid++, value, source, occurrences: uniq };
+  state.groups.push(g);
+  renderAll();
+  if (openPanel) openPanel(g.gid, null);
+}
+
+function mkOcc(c) { return { start: c.start, end: c.end, excluded: false, text: c.value, sheet: c.sheet, row: c.row, col: c.col }; }
+
+// 在所有单元格里按「子串」查找 needle 的每一处出现（跨工作表），返回 occurrence 列表。
+// 用码点（Array.from）比较，兼容中文与 emoji；这样「永康市」也能命中「永康市东城街道」里那段。
+function findSubstringOccurrences(needle) {
+  const n = Array.from(needle);
+  if (n.length === 0) return [];
+  const occs = [];
+  for (const c of state.cells) {
+    const chars = Array.from(c.value);
+    if (chars.length < n.length) continue;
+    for (let i = 0; i <= chars.length - n.length; i++) {
+      let hit = true;
+      for (let k = 0; k < n.length; k++) if (chars[i + k] !== n[k]) { hit = false; break; }
+      if (hit) occs.push({ start: c.start + i, end: c.start + i + n.length, excluded: false, text: needle, sheet: c.sheet, row: c.row, col: c.col });
+    }
+  }
+  return occs;
+}
+
+// 脱敏库命中（表格视图）：后端已按「最长匹配优先、非重叠」解析好每个词的区间，并回挂了
+// 所属单元格坐标，这里直接按区间建组即可，不再自行子串重算（避免把重叠区间弄丢）。
+// 这样与线性文本视图走同一份后端权威解析，行为完全一致。
+function applySuggestionsSheet(suggestions) {
+  for (const s of suggestions) {
+    const v = (s.value || '').trim();
+    if (!v) continue;
+    const occs = (s.spans || []).map(sp => ({
+      start: sp.start, end: sp.end, excluded: false, text: v,
+      sheet: sp.sheet, row: sp.row, col: sp.col,
+    }));
+    if (occs.length) state.groups.push({ gid: state.nextGid++, value: s.value, source: s.kind, occurrences: occs });
+  }
+}
+
+// 仅在表格视图下绑定一次：选区 / 工作表切换 / 双栏滚动同步。
+function bindSheetSelection() {
+  if (state.sheetHandlersBound) return;
+  state.sheetHandlersBound = true;
+
+  $('sheet-tabs').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-sheet]');
+    if (!b) return;
+    state.activeSheet = Number(b.dataset.sheet);
+    renderAll();
+  });
+
+  // 容器宽度变化会改变列宽分配（列宽受可用宽度约束，超出要压缩换行），需重算布局
+  window.addEventListener('resize', () => {
+    if (!state.sheetMode) return;
+    ensureSheetLayout(true);
+    renderAll();
+  });
+
+  // 只认「单元格内拖选」：单击（无选区）不做任何事。
+  // 拖选内容作为「值匹配键」：同文件内所有值相同的单元格（跨工作表）一并脱敏；
+  // 若没有整个值相等的单元格（只拖了长单元格里的一段），退化为仅脱敏本次拖选区间。
+  $('text-view').addEventListener('mouseup', (ev) => {
+    if (!state.sheetMode) return;
+    const td = ev.target.closest('td.cell[data-col]');
+    if (!td) return;
+    const cell = cellFromTd(td);
+    if (!cell) return;
+    const sel = inCellOffsets(td);
+    if (!sel) return;                       // 未拖选 -> 不脱敏
+    const needle = Array.from(cell.value).slice(sel.start, sel.end).join('');
+    // 按「子串」匹配：凡是单元格里包含该子串的，都在其对应位置脱敏（跨工作表）。
+    // 这样在「永康市东城街道」里选取「永康市」时，该长单元格本身、独立的「永康市」单元格、
+    // 以及其它含「永康市」的单元格，都会被识别出来并只掩掉「永康市」这一段。
+    let occs = findSubstringOccurrences(needle);
+    if (occs.length === 0)
+      occs = [{ start: cell.start + sel.start, end: cell.start + sel.end, excluded: false, text: needle, sheet: cell.sheet, row: cell.row, col: cell.col }];
+    // 已完全落在既有脱敏项区间内的 occurrence 不再新建、也不删既有项（与线性视图一致：
+    // 避免手动选长项里已被正确脱敏的子串时把长项整段冲掉）。
+    occs = occs.filter(o => !state.groups.some(g =>
+      g.occurrences.some(e => e.start <= o.start && o.end <= e.end)));
+    if (!occs.length) { window.getSelection().removeAllRanges(); return; }
+    // 手动优先：划选涉及到的既有脱敏项一律顶掉（含包含与部分重叠），避免二次/嵌套脱敏
+    logOverriddenAutos(occs, needle);  // 记「手动顶掉自动项」（须在顶掉之前）
+    dropOverlappingOccurrences(occs);
+    addCellGroup(occs, 'manual', needle, true);
+    window.getSelection().removeAllRanges();
+  });
+
+  // 滚动时两栏都要按各自 scrollTop 重算窗口，否则只重绘源栏、目标栏残留旧窗口，
+  // 会出现左右两栏内容错位（目标栏显示的是上一次滚动前的行）。
+  const onSheetScroll = (srcId, tgtId, maskedSrc, maskedTgt) => {
+    const src = $(srcId);
+    src.addEventListener('scroll', () => {
+      if (!state.sheetMode) return;   // 线性视图下不处理
+      if (window.__sheetLock) return;
+      window.__sheetLock = true;
+      renderSheet(srcId, maskedSrc);  // 源栏按当前 scrollTop 重算窗口
+      const tgt = $(tgtId);
+      tgt.scrollTop = src.scrollTop;  // 先同步位置，再让目标栏按此位置重算窗口
+      tgt.scrollLeft = src.scrollLeft;
+      renderSheet(tgtId, maskedTgt);
+      requestAnimationFrame(() => { window.__sheetLock = false; });
+    });
+  };
+  onSheetScroll('text-view', 'preview-view', false, true);
+  onSheetScroll('preview-view', 'text-view', true, false);
+}
+
+// ---------------------------------------------------------------- 分组操作
+
+// 以给定值为分组（自动合并全文相同值），source 为 'manual' | 'user' | 'division'。
+// 用显式出现位置建组（脱敏库建议走后端已解析好的区间，避免前端再重算引入重叠）。
+// rect 为就近面板锚点位置；openPanelAfter 为 false 时只建组不弹面板
+// （上传解析后用它把脱敏库命中项静默预填，避免一上传就连环弹窗）。
+function addGroupCore(value, source, occs, rect, openPanelAfter) {
+  if (!value) return;
+  let g = findGroup(value);
+  if (g) {
+    for (const o of occs)
+      if (!g.occurrences.some(e=>e.start===o.start && e.end===o.end))
+        g.occurrences.push(o);
+  } else {
+    g = { gid:state.nextGid++, value, source, occurrences:occs.slice() };
+    state.groups.push(g);
+  }
+  renderAll();
+  if (!openPanelAfter) return;
+  const anchor = rect ? { getBoundingClientRect: () => rect } :
+    document.querySelector(`#text-view mark[data-gid="${g.gid}"]`);
+  openPanel(g.gid, anchor);
+}
+
+// 手动划选专用：新选区若与既有脱敏项相交，一律顶掉旧项。
+// 「相交」含两种情形：把旧项整段包住（包含），或只压住旧项的一段（部分重叠）；
+// 判定用半开区间相交 o.start < n.end && n.start < o.end。被顶掉的出现位置从原组移除，
+// 原组因此空掉即整组删除——随后由本次划选形成新的脱敏。
+function dropOverlappingOccurrences(newOccs) {
+  if (!newOccs.length) return;
+  const hit = (o, n) => o.start < n.end && n.start < o.end;
+  for (const g of state.groups)
+    g.occurrences = g.occurrences.filter(o => !newOccs.some(n => hit(o, n)));
+  state.groups = state.groups.filter(g => g.occurrences.length > 0);
+  if (!state.groups.some(g => g.gid === state.focusedGid)) state.focusedGid = null;
+}
+
+// 手动框选：以选中文本为值建组；划选前先顶掉与之相交的既有脱敏项。
+function addManualGroup(start, end, rect) {
+  const value = state.chars.slice(start, end).join('');
+  if (!value) return;
+  let occs = allOccurrences(value).map(o => ({ ...o, text: value }));
+  // 已完全落在某个既有脱敏项（任意 group）区间内的 occurrence 不再新建、也不删既有项：
+  // 例如长项「湖州XX路」已正确脱敏，手动选其中子串「湖州」时，该「湖州」已被长项覆盖，
+  // 跳过即可避免把正确脱敏的长项整段冲掉；仅未覆盖的独立「湖州」才新建组。
+  // （这正是「已包含在脱敏项里的『湖州』不再被选取」的诉求。）
+  occs = occs.filter(o => !state.groups.some(g =>
+    g.occurrences.some(e => e.start <= o.start && o.end <= e.end)));
+  if (!occs.length) return; // 选区已被既有脱敏项完全覆盖，无需新建组
+  logOverriddenAutos(occs, value);   // 记「手动顶掉自动项」（须在顶掉之前）
+  dropOverlappingOccurrences(occs);
+  addGroupCore(value, 'manual', occs, rect, true);
+}
+
+// ---------------------------------------------------------------- 层2 自动识别（Tier 2）
+
+// 把后端正则引擎 / NER 命中的实体并入分组。
+// 同一值（含重复命中）的多处出现归为一组。文本视图下直接按线性偏移切片取值；
+// 表格视图下 state.chars 为空，须从单元格区间重建取值与坐标。
+function applyDetect(entities) {
+  if (state.sheetMode) { applyDetectSheet(entities); return; }
+  for (const e of entities) {
+    // 手动标注优先级最高：若与既有手动组相交，忽略该自动候选（避免覆盖用户已框选的字段）
+    if (overlapsManual(e.start, e.end)) continue;
+    const value = state.chars.slice(e.start, e.end).join('');
+    let g = findGroup(value);
+    const occ = { start:e.start, end:e.end, excluded:false };
+    if (g) {
+      if (!g.occurrences.some(o=>o.start===occ.start && o.end===occ.end))
+        g.occurrences.push(occ);
+    } else {
+      g = { gid:state.nextGid++, value,
+            source: e.source==='ner'?'ner':'auto', occurrences:[occ] };
+      state.groups.push(g);
+    }
+  }
+  renderAll();
+}
+
+// 表格视图下的层2 并入：实体是线性偏移，需落到对应单元格上、补全 sheet/row/col 坐标，
+// 否则标记与脱敏（maskSpans 按线性偏移）都会失效。
+// 一个实体可能横跨多个单元格，按「与每个单元格相交的片段」拆成多个 occurrence，
+// 每个片段由 renderCellContent 按精确子段高亮（原文视图包 <mark>、占位符视图包 <span class="ph">），
+// 单元格本身不做整格背景高亮。
+function applyDetectSheet(entities) {
+  const cells = state.cells;
+  for (const e of entities) {
+    // 手动标注优先级最高：与既有手动组相交的自动实体跳过（避免覆盖用户已框选的字段）
+    if (overlapsManual(e.start, e.end)) continue;
+    const segs = [];
+    for (const c of cells) {
+      const s = Math.max(c.start, e.start), t = Math.min(c.end, e.end);
+      if (s < t) segs.push({ start:s, end:t, sheet:c.sheet, row:c.row, col:c.col,
+                             text: linearSlice(c.start, c.end, s, t) });
+    }
+    if (segs.length === 0) continue;
+    const value = segs.map(s=>s.text).join('');
+    let g = findGroup(value);
+    if (g) {
+      for (const s of segs)
+        if (!g.occurrences.some(o=>o.start===s.start && o.end===s.end))
+          g.occurrences.push(s);
+    } else {
+      g = { gid:state.nextGid++, value,
+            source: e.source==='ner'?'ner':'auto', occurrences:segs };
+      state.groups.push(g);
+    }
+  }
+  renderAll();
+}
+
+// 从单元格集合里截取线性区间 [from, to) 中落在 [a, b) 子段内的文本（用于表格视图层2 取值）。
+function linearSlice(cellStart, cellEnd, a, b) {
+  const c = state.cells.find(x=>x.start===cellStart && x.end===cellEnd);
+  if (!c) return '';
+  return Array.from(c.value).slice(a - cellStart, b - cellStart).join('');
+}
+
+function maskSpans() {
+  // 出口兜底：按起点排序、同级长者优先，贪心丢弃相交项，保证永不出现重叠区间
+  // （后端 /api/mask 对重叠区间会直接报错「无法执行脱敏」）。正常流程经下方仲裁后
+  // 本就不应有重叠，这里只是最后一道防线。
+  // 同时带上来源：脱敏库建议（user/division）标 'library'，其余（manual/auto/ner）标 'other'；
+  // 后端据此把库命中裁掉与「用户保留的非库区间」重叠的部分（库只在空隙兜底）。
+  const raw = [];
+  for (const g of state.groups) {
+    const lib = (g.source === 'user' || g.source === 'division') ? 'library' : 'other';
+    for (const o of g.occurrences)
+      if (!o.excluded) raw.push({ start:o.start, end:o.end, source:lib });
+  }
+  raw.sort((a,b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+  const out = [];
+  for (const s of raw) {
+    if (out.length && s.start < out[out.length-1].end) continue; // 相交 → 丢弃后者
+    out.push(s);
+  }
+  return out;
+}
+
+// 一次候选区间 [a,b) 是否与「手动标注组」的某个出现位置相交。
+function overlapsManual(a, b) {
+  return state.groups.some(g => g.source === 'manual' &&
+    g.occurrences.some(o => !o.excluded && o.start < b && a < o.end));
+}
+
+// ---------------------------------------------------------------- 脱敏调整工作日志
+//
+// 记录「自动脱敏结果被手动修改」的事件（含所在整句原文），供作者后续分析。
+// **含原文，与「导出诊断包」（不含原文）刻意不同**：后端把它存到独立的 worklog/，
+// 不进 logs/、不进诊断包；导出后即清（`/api/adjust-export`）。
+
+// 取某区间所在「整句」：线性文本取前后句末标点之间；表格取所在单元格的整格值。
+function sentenceAround(start, end) {
+  if (state.sheetMode) {
+    for (const c of state.cells) if (c.start <= start && end <= c.end) return c.value;
+    return '';
+  }
+  const ch = state.chars || [];
+  if (!ch.length) return '';
+  const TERM = '。！？；!?;\n';
+  let ls = Math.max(0, Math.min(start, ch.length));
+  while (ls > 0 && !TERM.includes(ch[ls - 1])) ls--;
+  let re = Math.max(ls, Math.min(end, ch.length));
+  while (re < ch.length && !TERM.includes(ch[re])) re++;
+  if (re < ch.length) re++;          // 含句末标点
+  return ch.slice(ls, re).join('');
+}
+
+// 记录一条调整（失败静默——日志不该影响主流程）。
+function logAdjust(action, autoValue, start, end, newValue) {
+  if (!state.taskId || !autoValue) return;
+  fetch('/api/adjust-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      task_id: state.taskId, action, auto_value: autoValue,
+      sentence: sentenceAround(start, end), new_value: newValue || null,
+    }),
+  }).catch(()=>{});
+}
+
+// 手动选区即将顶掉自动项时，为每个被顶掉的 auto/ner 出现处记一条 override。
+// 必须在 `dropOverlappingOccurrences` **之前**调用（那时旧组还在 state.groups 里）。
+function logOverriddenAutos(newOccs, newValue) {
+  const hit = (o, n) => o.start < n.end && n.start < o.end;
+  for (const g of state.groups) {
+    if (g.source !== 'auto' && g.source !== 'ner') continue;
+    for (const o of g.occurrences)
+      if (!o.excluded && newOccs.some(n => hit(o, n)))
+        logAdjust('override', g.value, o.start, o.end, newValue);
+  }
+}
+
+// ---------------------------------------------------------------- 就近面板
+
+function openPanel(gid, anchor) {
+  const g = state.groups.find(x=>x.gid===gid);
+  if (!g) return;
+  state.pendingGid = gid;
+  const ph = g.placeholder || placeholderFor(g.value);
+
+  $('field-panel').innerHTML = `
+    <h3>编辑脱敏项</h3>
+    <div class="meta">原文内容：<strong>${escapeHtml(g.value.length>40?g.value.slice(0,40)+'…':g.value)}</strong></div>
+    <label>占位符预览</label>
+    <div id="panel-ph" class="ph" style="background:var(--ph);padding:2px 6px;border-radius:4px;display:inline-block">${escapeHtml(ph)}</div>
+    <div id="panel-status"></div>
+    <div class="actions">
+      <button id="panel-lib">加入脱敏库</button>
+      <button id="panel-del" class="primary" style="background:var(--danger);border-color:var(--danger)">删除此条</button>
+      <button id="panel-close">关闭</button>
+    </div>`;
+
+  $('panel-del').onclick = ()=>{
+    // 删除一条「自动识别」的组 → 每个未排除的出现处记一条 delete。
+    if (g.source === 'auto' || g.source === 'ner')
+      for (const o of g.occurrences)
+        if (!o.excluded) logAdjust('delete', g.value, o.start, o.end, null);
+    state.groups = state.groups.filter(x=>x.gid!==gid); closePanel(); renderAll();
+  };
+  $('panel-close').onclick = closePanel;
+
+  // 加入脱敏库：执行脱敏前即可把该值收录。改为预填到脱敏库顶部输入框，
+  // 由顶部统一提交（可选类别），符合「删除在行内、新增在顶部」的布局。
+  const libBtn = $('panel-lib');
+  if (state.inLibrary.has(g.value)) {
+    libBtn.disabled = true;
+    libBtn.textContent = '已在脱敏库';
+  }
+  libBtn.onclick = () => {
+    if (state.inLibrary.has(g.value)) {
+      $('panel-status').textContent = '该值已在脱敏库中';
+      return;
+    }
+    $('lib-body').hidden = false;
+    $('lib-add-input').value = g.value;
+    $('lib-add-cat').value = '自定义';
+    $('lib-add-input').focus();
+    $('panel-status').textContent = '已填入脱敏库顶部，请选类别后点「加入脱敏库」';
+  };
+
+  // 定位
+  const p = $('field-panel');
+  p.hidden = false;
+  const pw = p.offsetWidth, phgt = p.offsetHeight;
+  let top = 80, left = (window.innerWidth - pw)/2;
+  if (anchor) {
+    const r = anchor.getBoundingClientRect();
+    top = r.bottom + 8; left = r.left;
+    if (left + pw > window.innerWidth-10) left = window.innerWidth - pw - 10;
+    if (top + phgt > window.innerHeight-10) top = Math.max(10, r.top - phgt - 8);
+  }
+  p.style.top = top+'px'; p.style.left = left+'px';
+}
+
+function closePanel() { state.pendingGid=null; $('field-panel').hidden = true; }
+
+// ---------------------------------------------------------------- 上传与解析
+
+$('upload-btn').onclick = async () => {
+  const input = $('file-input');
+  $('upload-msg').textContent = '';
+  if (!input.files.length) { showCenterToast('请先选择文件'); return; }
+  const form = new FormData();
+  form.append('file', input.files[0]);
+  $('upload-btn').disabled = true;
+  try {
+    const up = await fetch('/api/upload', { method:'POST', body:form });
+    if (!up.ok) throw new Error(await up.text());
+    const info = await up.json();
+    const an = await fetch('/api/analyze', { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ task_id: info.task_id }) });
+    if (!an.ok) throw new Error(await an.text());
+    const data = await an.json();
+
+    // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
+    state.placeholders = data.placeholders || {};
+
+    state.taskId = info.task_id;
+    state.filename = info.filename;
+    state.groups = [];
+    state.nextGid = 1;
+    state.inLibrary = new Set((data.suggestions||[]).map(s=>s.value));
+    if (data.cells && data.cells.length) {
+      // 表格视图（xlsx）：不再把整篇文本展开成数组/DOM，从根上避免大表 OOM。
+      state.sheetMode = true;
+      state.cells = data.cells;
+      buildGrid(data.cells);
+      state.activeSheet = state.sheets[0];
+      $('mode-hint').textContent =
+        '表格视图：在单元格内用鼠标拖选要脱敏的文字，即只脱敏选中的那一段' +
+        '（单击不会脱敏整格）；列宽按内容自适应、超出部分自动换行完整展示。';
+      bindSheetSelection();
+    } else {
+      // 线性文本视图（docx / txt / md）：原行为不变
+      state.sheetMode = false;
+      state.chars = Array.from(data.text);
+    }
+    renderAll();
+    // 切到「标注」目的地；顶部显示当前文件 chip、状态栏同步。
+    $('nav-annotate').disabled = false;
+    $('nav-export').disabled = true;
+    $('file-chip').hidden = false;
+    $('file-chip').textContent = state.filename || '';
+    showDest('annotate');
+    $('mask-msg').textContent = '';
+    // 层二直接自动识别：脱敏库命中（suggestions）与正则实体（entities）统一由 runDetect 重建，
+    // 故清空全部后再次「自动识别」也会重新触发脱敏库硬脱敏。
+    runDetect();
+  } catch(e) { $('upload-msg').textContent='解析失败：'+e.message; }
+  finally { $('upload-btn').disabled = false; }
+};
+
+// ---------------------------------------------------------------- 可选类型各自独立勾选，汇总成清单发给服务端（与 Presidio 逐实体类型 enabled 的做法一致）
+function syncOptionalTypes(){
+  state.optionalTypes = [...document.querySelectorAll('.opt-type')]
+    .filter(el=>el.checked).map(el=>el.value);
+}
+document.querySelectorAll('.opt-type').forEach(el=>{
+  el.onchange = ()=>{ syncOptionalTypes(); if (state.taskId) runDetect(); };
+});
+// NER 不再有前端开关（原 checkbox 是 checked+disabled 的纯展示控件，已移除）；
+// 请求里也不再传 ner_person / ner_address —— 后端语义「不传即开」，可用性由后端
+// ner::is_loaded() 自行判定。故此处无需任何 onchange 处理。
+$('detect-btn').onclick = runDetect;
+
+async function runDetect() {
+  if (!state.taskId) return;
+  $('detect-btn').disabled = true;
+  try {
+    // 不再发送 threshold：阈值已固定（准确性优先），由服务端 recognize::DEFAULT_THRESHOLD 决定。
+    // 也不再发送 ner_person / ner_address：见上方说明（不传即开）。
+    const an = await fetch('/api/analyze', { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ task_id:state.taskId,
+                             optional_types:state.optionalTypes }) });
+    if (!an.ok) throw new Error(await an.text());
+    const data = await an.json();
+    // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
+    state.placeholders = data.placeholders || {};
+    // 重建自动识别结果：移除此前由自动识别/脱敏库产生的分组（保留手动标注），
+    // 再重新并入「脱敏库命中」与「正则/黑名单实体」。这样清空全部后点自动识别，
+    // 脱敏库的硬脱敏也会重新触发；切换金额/日期等可选类型时手动标注不丢失。
+    state.groups = state.groups.filter(g => g.source === 'manual');
+    state.inLibrary = new Set((data.suggestions||[]).map(s=>s.value));
+    if (state.sheetMode) {
+      applySuggestionsSheet(data.suggestions||[]);
+    } else {
+      for (const s of (data.suggestions||[])) {
+        const occs = (s.spans||[]).map(sp => ({ start: sp.start, end: sp.end, excluded: false, text: s.value }));
+        addGroupCore(s.value, s.kind, occs, null, false);
+      }
+    }
+    applyDetect(data.entities||[]);
+  } catch(e) { alert('自动识别失败：'+e.message); }
+  finally { $('detect-btn').disabled = false; }
+}
+
+// ---------------------------------------------------------------- 标注交互
+
+// 点击左栏原文高亮或右栏占位符时，让中栏对应的脱敏项目高亮并在中栏视口内居中。
+// 中栏独立滚动，故只滚动 #group-list 容器自身，不会带动整页。
+function focusMiddle(gid) {
+  state.focusedGid = gid;
+  const list = $('group-list');
+  const item = list.querySelector(`.gitem[data-gid="${gid}"]`);
+  if (!item) return;
+  list.querySelectorAll('.gitem.focused').forEach(e => e.classList.remove('focused'));
+  item.classList.add('focused');
+  const lr = list.getBoundingClientRect();
+  const ir = item.getBoundingClientRect();
+  list.scrollTop += (ir.top + ir.height / 2) - (lr.top + lr.height / 2);
+}
+
+// 仅在该栏容器内居中，绝不调用 scrollIntoView——后者会把所有可滚动祖先
+// （含整个窗口）一起滚动，导致内容被窗口上沿遮挡。社区对「多滚动容器同步」的
+// 通行做法就是手动算 scrollTop，把滚动限定在目标容器内；若列内居中后元素仍
+// 在窗口可视区之外，再以「最小幅度 + 顶部留白」滚动窗口把它带入视图。
+function centerInView(cont, el) {
+  const cRect = cont.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  const offset = eRect.top - cRect.top + cont.scrollTop; // 元素在滚动内容中的绝对位置
+  cont.scrollTop = Math.max(0, offset - (cont.clientHeight - el.offsetHeight) / 2);
+  // 列内居中后复测：若元素仍未在窗口可视区内，最小幅度滚动窗口（顶部留 72px 余量，
+  // 确保绝不被窗口上沿遮挡），而不是交给不可控的 scrollIntoView。
+  const r2 = el.getBoundingClientRect();
+  const margin = 72;
+  if (r2.top < margin) window.scrollBy(0, r2.top - margin);
+  else if (r2.bottom > window.innerHeight - margin) window.scrollBy(0, r2.bottom - (window.innerHeight - margin));
+}
+
+// 仅在该栏容器内水平居中（用于表格横向滚动时把目标列带入视口中央）。
+function centerXInView(cont, el) {
+  const cRect = cont.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  const offsetX = eRect.left - cRect.left + cont.scrollLeft; // 元素在滚动内容中的绝对水平位置
+  cont.scrollLeft = Math.max(0, offsetX - (cont.clientWidth - el.offsetWidth) / 2);
+}
+
+// 点击中栏「出现位置」里的某字段：自动聚焦到对应单元格。
+// - 表格视图：切到该字段所在工作表，并在左栏居中定位对应单元格（保留 sheet/row/col）。
+// - 线性文本视图：左栏 mark / 右栏 .ph 高亮，原逻辑。
+function focusCellInView(o, gid, occ) {
+  const L = $('text-view'), R = $('preview-view');
+  const g = state.grid[o.sheet];
+  if (!g) return;
+  const idx = o.row - g.rowMin;
+  if (idx < 0 || idx >= state.totalRows) return;
+  // 目标列的水平偏移（行号列 + 其前各列宽度之和）
+  const colLeft = SHEET_ROWNUM_W + state.colWidths.slice(0, o.col - 1).reduce((a, b) => a + b, 0);
+  const colW = state.colWidths[o.col - 1] || SHEET_MIN_COL;
+  const rowTop = state.rowOffsets[idx] || 0;
+  const rowH = state.rowHeights[idx] || 30;
+  // 1) 先把目标行/列滚入左栏视口（用偏移表估算居中 scrollTop/scrollLeft），再强制重绘
+  //    虚拟化窗口，确保目标单元格已进入 DOM——否则 querySelector 拿到 null，聚焦直接失败。
+  L.scrollTop = Math.max(0, rowTop - (L.clientHeight - rowH) / 2);
+  L.scrollLeft = Math.max(0, colLeft - (L.clientWidth - colW) / 2);
+  renderSheet('text-view', false);
+  renderSheet('preview-view', true);
+  const td = L.querySelector(`td.cell[data-sheet="${o.sheet}"][data-row="${o.row}"][data-col="${o.col}"]`);
+  if (!td) return;
+  // 2) 左栏精确居中（行 + 列）
+  centerInView(L, td);
+  centerXInView(L, td);
+  // 3) 右栏按相同 scrollTop/scrollLeft 同步并据此重绘窗口；表格视图下 syncScroll 依赖
+  //    span.line 不适用，故直接按 scrollTop/scrollLeft 对齐，再在对应单元格上精确居中。
+  R.scrollTop = L.scrollTop; R.scrollLeft = L.scrollLeft;
+  renderSheet('preview-view', true);
+  const tdR = R.querySelector(`td.cell[data-sheet="${o.sheet}"][data-row="${o.row}"][data-col="${o.col}"]`);
+  if (tdR) { centerInView(R, tdR); centerXInView(R, tdR); }
+  // 4) 高亮：表格视图下不再整格高亮单元格，而是用 state.focusedOcc 标记「被点中的那一段」，
+  //    renderCellContent 据此给对应 <mark>/<span class="ph"> 加 flash——与 docx 一致，只精确
+  //    高亮被点中的脱敏要素，多要素单元格里也能分辨点的是哪一段。flash 由 renderSheet 每次
+  //    重绘（含滚动）持续应用，不随重绘丢失。
+  state.focusedOcc = { gid, occ };
+  state.focusCell = null;   // 清除整格定位框，避免残留整格描边
+  renderSheet('text-view', false);
+  renderSheet('preview-view', true);
+  // 把精确命中的那段（而非整个单元格）滚到视野中央，定位更准
+  const m = L.querySelector(`td.cell[data-sheet="${o.sheet}"][data-row="${o.row}"][data-col="${o.col}"] mark[data-gid="${gid}"][data-occ="${occ}"]`)
+          || R.querySelector(`td.cell[data-sheet="${o.sheet}"][data-row="${o.row}"][data-col="${o.col}"] span.ph[data-gid="${gid}"][data-occ="${occ}"]`);
+  if (m) { centerInView(L, m); centerInView(R, m); }
+}
+
+// 表格视图：左/右栏点击某个已脱敏单元格，定位中栏对应的脱敏组并展开。
+// 单元格的 sheet/row/col 与脱敏组 occurrence 的元数据一一对应，故可直接反查到 gid。
+function handleSheetCellClick(td) {
+  const sheet = Number(td.dataset.sheet), row = Number(td.dataset.row), col = Number(td.dataset.col);
+  const g = state.groups.find(g => g.occurrences.some(o => o.sheet === sheet && o.row === row && o.col === col));
+  if (!g) return;
+  state.focusCell = { sheet, row, col };   // 持久高亮该单元格（滚动重绘不清除）
+  state.focusedOcc = null;                 // 直接点单元格只描边定位，不附加精确段高亮
+  renderSheet('text-view', false);
+  renderSheet('preview-view', true);
+  focusMiddle(g.gid);
+  openPanel(g.gid, td);
+}
+
+function jumpToOccurrence(gid, i) {
+  const g = state.groups.find(x => x.gid === gid);
+  if (!g) return;
+  const o = g.occurrences[i];
+  if (state.sheetMode && o && o.sheet !== undefined) {
+    if (o.sheet !== state.activeSheet) {  // 跨工作表：先切表再定位
+      state.activeSheet = o.sheet;
+      renderAll();
+    }
+    focusCellInView(o, gid, i);
+    return;
+  }
+  // 线性文本视图：左栏 mark 含被排除项（仍渲染为删除线），右栏 .ph 只含未排除项；
+  // 两者都带 data-occ，故直接按「gid + 出现序号」精确选中，彻底避免下标错位。
+  const left = $('text-view'), right = $('preview-view');
+  left.querySelectorAll('mark.flash').forEach(e => e.classList.remove('flash'));
+  right.querySelectorAll('.ph.flash').forEach(e => e.classList.remove('flash'));
+  const m = left.querySelector(`mark[data-gid="${gid}"][data-occ="${i}"]`);
+  const ms = left.querySelectorAll(`mark[data-gid="${gid}"][data-occ="${i}"]`);
+  const p = right.querySelector(`.ph[data-gid="${gid}"][data-occ="${i}"]`);
+  if (m) {
+    centerInView(left, m);          // 只在左栏容器内居中（取首个分段，即最靠上者），不动窗口
+    ms.forEach(e => e.classList.add('flash')); // 跨行脱敏项被拆成多段，逐段高亮
+    syncScroll('text-view', 'preview-view'); // 立即带动右栏对齐，不依赖 scroll 事件时序
+  }
+  if (p) p.classList.add('flash');
+}
+
+// 左栏：拖选创建分组；点击高亮打开面板并居中中栏对应项。
+// 注意：仅线性文本视图适用；表格视图（sheetMode）的拖选由 bindSheetSelection 里的
+// 单元格处理程序负责，且本处理程序会 removeAllRanges() 清掉选区，必须在此及早让行。
+$('text-view').addEventListener('mouseup', (ev)=>{
+  if (state.sheetMode) return;                       // 表格视图交给单元格内拖选处理
+  const sel = window.getSelection();
+  // 拖选（非折叠）无论落点在哪都要处理：选区末端常常正好落在已脱敏的 <mark> 上，
+  // 若在此 return 会让「覆盖/顶掉旧项」整段失效（如选「杭劳人仲案字〔2026〕第0162号」
+  // 时末端压在已脱敏的「〔2026〕第0162号」标记上）。纯点击（折叠）落在标记上才交给
+  // click 聚焦，避免误触发。
+  if (sel && !sel.isCollapsed) {
+    const r = getSelectionRange();
+    if (r) {
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      addManualGroup(r.start, r.end, rect);
+      sel.removeAllRanges();
+    }
+  }
+});
+$('text-view').addEventListener('click', (ev)=>{
+  if (state.sheetMode) {                    // 表格视图：点单元格 → 中栏跳对应脱敏组
+    const td = ev.target.closest('td.cell[data-col]');
+    if (td) handleSheetCellClick(td);
+    return;
+  }
+  const mark = ev.target.closest('mark[data-gid]');
+  if (mark) {
+    const gid = Number(mark.dataset.gid);
+    focusMiddle(gid);
+    openPanel(gid, mark);
+  }
+});
+
+// 右栏：点击已脱敏占位符，在其附近跳出操作框，并居中中栏对应项。
+// 表格视图下占位符是纯文本（无 .ph 标记），故同样走「点单元格 → 中栏跳转」。
+$('preview-view').addEventListener('click', (ev)=>{
+  if (state.sheetMode) {
+    const td = ev.target.closest('td.cell[data-col]');
+    if (td) handleSheetCellClick(td);
+    return;
+  }
+  const ph = ev.target.closest('.ph[data-gid]');
+  if (ph) {
+    const gid = Number(ph.dataset.gid);
+    focusMiddle(gid);
+    openPanel(gid, ph);
+  }
+});
+
+// 中栏：点击事件委托——出现位置字段跳转、复选框交给 change、分组聚焦并展开。
+$('group-list').addEventListener('click', (ev)=>{
+  if (ev.target.matches('input[data-occ]')) return; // 复选框不在此处理
+  const txt = ev.target.closest('.occ-text');
+  if (txt) {
+    const item = ev.target.closest('.gitem');
+    jumpToOccurrence(Number(item.dataset.gid), Number(txt.dataset.occ));
+    return;
+  }
+  const item = ev.target.closest('.gitem[data-gid]');
+  if (item) {
+    const gid = Number(item.dataset.gid);
+    state.focusedGid = gid;
+    renderGroups(); // 应用 .focused → 自动展开「出现位置」
+    const anchor = document.querySelector(`#text-view mark[data-gid="${gid}"]`) || item;
+    openPanel(gid, anchor);
+  }
+});
+
+// 中栏：逐处排除（只有复选框能切换；文本点击是跳转，不在此处理）。
+$('group-list').addEventListener('change', (ev)=>{
+  const cb = ev.target.closest('input[data-occ]');
+  if (!cb) return;
+  const item = ev.target.closest('.gitem');
+  const g = state.groups.find(x => x.gid === Number(item.dataset.gid));
+  if (!g) return;
+  const occ = g.occurrences[Number(cb.dataset.occ)];
+  occ.excluded = !cb.checked;
+  // 取消（排除）某个「自动识别」的出现处 → 记一条 exclude。
+  if (occ.excluded && (g.source === 'auto' || g.source === 'ner'))
+    logAdjust('exclude', g.value, occ.start, occ.end, null);
+  renderAll(); // 保持 focusedGid，展开状态与勾选不被重置
+});
+
+// 清空
+$('clear-btn').onclick = ()=>{ if (confirm('确定清空全部脱敏项？')) { state.groups=[]; closePanel(); renderAll(); } };
+
+// ---------------------------------------------------------------- 应用外壳：目的地路由 + 状态栏
+function showDest(name) {
+  const map = { start:'dest-start', annotate:'work', export:'dest-export', restore:'dest-restore', library:'dest-library' };
+  for (const k in map) { const el = $(map[k]); if (el) el.classList.toggle('active', k === name); }
+  document.querySelectorAll('#navrail .nav-item').forEach(b => b.classList.toggle('active', b.dataset.dest === name));
+  updateStatus();
+}
+document.querySelectorAll('#navrail .nav-item').forEach(btn => {
+  btn.addEventListener('click', () => { if (!btn.disabled) showDest(btn.dataset.dest); });
+});
+// 状态栏：当前文件 / 字数 / 脱敏项数
+function updateStatus() {
+  const f = $('sb-file'); if (f) f.textContent = state.filename ? ('· ' + state.filename) : '';
+  const c = $('sb-counts');
+  if (c) c.textContent = state.chars.length
+    ? (`· ${state.chars.length.toLocaleString()} 字` + (state.groups.length ? ` · 脱敏项 ${state.groups.length}` : ''))
+    : '';
+}
+
+// 触发浏览器下载（按钮无 href，改用临时 <a> 携带 download 属性点击）。
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function bindDownload(btn, url, filename) { btn.onclick = () => triggerDownload(url, filename); }
+
+// ---------------------------------------------------------------- 报错坐标可读化 + 跳转高亮（问题4）
+// 后端 mask 失败会返回形如「标注区间重叠：[{s}, {e}) 与 [{s}, {e}) 相交」的码点坐标，
+// 肉眼难读。这里把坐标转成「第L行第C列附近」可读文案，并支持点击跳转到左栏对应位置高亮。
+
+// 码点偏移 → 1-based 行列号（按 \n 计行）。
+function offsetToLineCol(off) {
+  const chars = state.chars;
+  let line = 1, col = 1;
+  const n = Math.min(off, chars.length);
+  for (let i = 0; i < n; i++) {
+    if (chars[i] === '\n') { line++; col = 1; } else col++;
+  }
+  return { line, col };
+}
+
+// 清除上一次坐标跳转产生的临时高亮。
+function clearFlash() {
+  const view = $('text-view');
+  if (!view) return;
+  view.querySelectorAll('mark.flash-tmp').forEach(e => {
+    const p = e.parentNode;
+    while (e.firstChild) p.insertBefore(e.firstChild, e);
+    p.removeChild(e);
+    p.normalize();
+  });
+}
+
+// 在左栏把 [start,end) 区间（可能跨多个文本节点）包成临时 <mark class="flash flash-tmp"> 高亮。
+function flashRange(start, end) {
+  const view = $('text-view');
+  if (!view) return [];
+  clearFlash();
+  let acc = 0;
+  const segs = [];
+  const walker = document.createTreeWalker(view, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walker.nextNode())) {
+    const s = acc, e = acc + Array.from(n.nodeValue).length;
+    const a = Math.max(start, s), b = Math.min(end, e);
+    if (a < b) segs.push({ node: n, from: a - s, to: b - s });
+    acc = e;
+  }
+  const marks = [];
+  for (const seg of segs) {
+    if (seg.from >= seg.to) continue;
+    try {
+      const range = document.createRange();
+      range.setStart(seg.node, seg.from);
+      range.setEnd(seg.node, seg.to);
+      const mark = document.createElement('mark');
+      mark.className = 'flash flash-tmp';
+      range.surroundContents(mark);
+      marks.push(mark);
+    } catch (e) { /* 跨节点拆解失败等，忽略该片段 */ }
+  }
+  return marks;
+}
+
+// 点击报错坐标时：在左栏滚动到对应位置并临时高亮。
+function focusOffset(start, end) {
+  const view = $('text-view');
+  if (!view) return;
+  const marks = flashRange(start, end);
+  if (marks.length) centerInView(view, marks[0]);
+}
+
+// 解析后端错误中的坐标区间，渲染可读文案 + 可点击跳转；解析失败（或表格视图坐标非线性）则回退原文。
+function showMaskError(e) {
+  const msg = (e && e.message) ? e.message : String(e);
+  const msgEl = $('mask-msg');
+  if (!msgEl) return;
+  const pairs = [];
+  const re = /\[(\d+),\s*(\d+)\)/g;
+  let m;
+  while ((m = re.exec(msg))) pairs.push({ s: Number(m[1]), e: Number(m[2]) });
+  if (!pairs.length || state.sheetMode) {
+    msgEl.textContent = '脱敏失败：' + msg;
+    return;
+  }
+  const parts = pairs.map(p => {
+    const lc = offsetToLineCol(p.s);
+    const snippet = state.chars.slice(p.s, Math.min(p.e, p.s + 14)).join('').replace(/\n/g, '↵');
+    return `<span class="coord-link" data-s="${p.s}" data-e="${p.e}" title="点击在左栏定位高亮">第${lc.line}行第${lc.col}列附近「${escapeHtml(snippet)}」</span>`;
+  });
+  msgEl.innerHTML = '脱敏失败：' + parts.join(' 与 ') + ' 重叠，无法脱敏。'
+    + `<br><span class="hint">原始信息：${escapeHtml(msg)}</span>`;
+  msgEl.onclick = (ev) => {
+    const a = ev.target.closest('.coord-link');
+    if (a) focusOffset(Number(a.dataset.s), Number(a.dataset.e));
+  };
+}
+
+// ---------------------------------------------------------------- 执行脱敏
+
+$('mask-btn').onclick = async () => {
+  const spans = maskSpans();
+  if (spans.length === 0) { alert('还没有任何脱敏项'); return; }
+  $('mask-msg').textContent='';
+  $('mask-btn').disabled = true;
+  try {
+    const res = await fetch('/api/mask', { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ task_id:state.taskId, spans }) });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    // 三种下载均绑定为可点击的按钮（原格式蓝色高亮，md/txt 普通按钮）。
+    const stem = state.filename.replace(/\.[^.]+$/, '');
+    bindDownload($('dl-masked'), `/api/download/${state.taskId}/masked`, data.masked_filename);
+    bindDownload($('dl-md'), `/api/download/${state.taskId}/masked?fmt=md`, `脱敏_${stem}.md`);
+    bindDownload($('dl-txt'), `/api/download/${state.taskId}/masked?fmt=txt`, `脱敏_${stem}.txt`);
+    $('nav-export').disabled = false;
+    showDest('export');
+    // 脱敏过的值已进脱敏库，刷新下拉框与列表
+    await refreshTasks();
+    await refreshLibrary();
+  } catch(e) { showMaskError(e); }
+  finally { $('mask-btn').disabled = false; }
+};
+
+// ---------------------------------------------------------------- 还原
+
+$('restore-btn').onclick = async () => {
+  $('restore-msg').textContent='';
+  const file = $('restore-file').files[0];
+  const mappingFile = $('restore-mapping').files[0];
+  const mappingTaskId = $('restore-mapping-select').value;
+  if (!file) { showCenterToast('请选择脱敏文件'); return; }
+  // 映射表可选：本机脱敏过的文件可由脱敏库自动还原，无需映射表；
+  // 跨机文件或片段值仍建议选本机映射表或上传映射表文件。
+  const form = new FormData();
+  form.append('file', file);
+  if (mappingTaskId) form.append('mapping_task_id', mappingTaskId);
+  else if (mappingFile) form.append('mapping', mappingFile);
+  $('restore-btn').disabled = true;
+  try {
+    const res = await fetch('/api/restore', { method:'POST', body:form });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = file.name.replace(/(\.[^.]+)?$/, '_已还原$1');
+    a.click(); URL.revokeObjectURL(url);
+    $('restore-msg').className='ok';
+    $('restore-msg').textContent='还原完成，已开始下载。';
+  } catch(e) {
+    $('restore-msg').className='error';
+    $('restore-msg').textContent='还原失败：'+e.message;
+  } finally { $('restore-btn').disabled = false; }
+};
+
+// 导入外部映射表：存为本机任务，进入下拉框可反复还原（详见后端 /api/import-mapping）。
+$('import-mapping-btn').onclick = () => $('import-mapping').click();
+$('import-mapping').onchange = async () => {
+  const f = $('import-mapping').files[0];
+  if (!f) return;
+  $('restore-msg').textContent='';
+  const form = new FormData();
+  form.append('mapping', f);
+  $('import-mapping-btn').disabled = true;
+  try {
+    const res = await fetch('/api/import-mapping', { method:'POST', body:form });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    $('restore-msg').className='ok';
+    $('restore-msg').textContent=`已导入映射表（${data.count} 条，来源：${data.source_file}），已加入上方下拉框，可选择还原。`;
+    $('import-mapping').value='';
+    refreshTasks();
+  } catch(e) {
+    $('restore-msg').className='error';
+    $('restore-msg').textContent='导入失败：'+e.message;
+  } finally { $('import-mapping-btn').disabled = false; }
+};
+
+// 导出所选映射表（手动带走）。映射表默认仅存本机、走下拉框，不主动下载。
+$('export-mapping-btn').onclick = async () => {
+  const tid = $('restore-mapping-select').value;
+  if (!tid) { $('restore-msg').textContent='请先在映射表下拉框中选择一项'; return; }
+  try {
+    const res = await fetch(`/api/download/${tid}/mapping`);
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = ''; // 由服务端 Content-Disposition 决定文件名
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) { $('restore-msg').className='error'; $('restore-msg').textContent='导出失败：'+e.message; }
+};
+
+// 拉取脱敏任务列表，填充映射表下拉面板（仅含已生成映射表的任务，逐条可删）。
+let lastTasks = [];
+function updateSelCount() {
+  const n = document.querySelectorAll('#mapping-panel .dd-check:checked').length;
+  const btn = $('dd-del-sel');
+  if (btn) { btn.textContent = `删除选中(${n})`; btn.disabled = n === 0; }
+}
+async function refreshTasks() {
+  try {
+    const r = await fetch('/api/tasks');
+    if (!r.ok) return;
+    const tasks = await r.json();
+    lastTasks = tasks;
+    // 任何已生成映射表的任务（本机脱敏的 / 外部导入的）都可在下拉框选择还原。
+    const masked = tasks.filter(t=>t.mapping_count>0);
+    const panel = $('mapping-panel');
+    if (masked.length === 0) {
+      panel.innerHTML = '<div class="dd-empty">（暂无本机映射表）</div>';
+      return;
+    }
+    const items = masked.map(t =>
+      `<div class="dd-item" data-val="${escapeAttr(t.task_id)}" data-file="${escapeAttr(t.source_file)}" data-status="${escapeAttr(t.status)}" data-created="${escapeAttr(t.created_at)}" data-count="${t.mapping_count}">
+         <input type="checkbox" class="dd-check" data-val="${escapeAttr(t.task_id)}">
+         <span class="dd-name" data-val="${escapeAttr(t.task_id)}">映射表_${escapeHtml(t.source_file)}</span>
+         <button type="button" class="dd-del" data-val="${escapeAttr(t.task_id)}">删除</button>
+         <button type="button" class="dd-view" data-val="${escapeAttr(t.task_id)}">查看</button>
+       </div>`).join('');
+    panel.innerHTML = `<div class="dd-toolbar">
+        <button type="button" id="dd-del-sel" class="primary" style="background:var(--danger);border-color:var(--danger);color:#fff" disabled>删除选中(0)</button>
+        <button type="button" id="dd-clear" class="primary" style="background:var(--danger);border-color:var(--danger);color:#fff">清空全部</button>
+      </div>` + items;
+    updateSelCount();
+  } catch(e) { /* 忽略 */ }
+}
+
+// ---------------------------------------------------------------- 脱敏库面板
+
+// 脱敏库每页渲染上限（与后端默认一致）。超过此数只显示一页，靠关键词精确筛选。
+const LIB_PAGE_LIMIT = 500;
+
+let libRefreshTimer = null;
+async function refreshLibrary() {
+  initLibrarySelects();   // 类别下拉顺序按库容动态刷新（内部有「顺序未变则不重渲染」保护）
+  try {
+    const kw = ($('lib-search').value || '').trim();
+    const catFilter = $('lib-cat-filter').value;
+    const params = new URLSearchParams();
+    if (kw) params.set('q', kw);
+    if (catFilter) params.set('category', catFilter);
+    params.set('limit', String(LIB_PAGE_LIMIT));
+    const r = await fetch('/api/library?' + params.toString());
+    if (!r.ok) return;
+    const data = await r.json();
+    const rows = data.rows || [];
+    const shown = rows.length;
+    // 顶部计数：显示满足条件的总条数；若被分页截断则提示用户输入关键词精确筛选。
+    if (data.total > shown) {
+      $('lib-count').textContent = `本页 ${shown} / 共 ${data.total} 条（输入关键词精确筛选）`;
+    } else {
+      $('lib-count').textContent = `共 ${data.total} 条`;
+    }
+    const html = rows.map(x => {
+      const shownVal = x.value.length>40 ? x.value.slice(0,40)+'…' : x.value;
+      const kindBadge = x.kind==='division'
+        ? '<span class="badge off">系统</span>'
+        : '<span class="badge on">用户</span>';
+      return `<div class="gitem" data-val="${escapeAttr(x.value)}">
+        <div class="top"><span class="val" title="${escapeAttr(x.value)}">${escapeHtml(shownVal)}</span>${kindBadge}</div>
+        <div class="row" style="margin-top:6px;gap:6px">
+          <select class="lib-cat" data-val="${escapeAttr(x.value)}" style="flex:1;min-width:100px">${categoryOptions(x.category)}</select>
+          <button class="lib-del" data-val="${escapeAttr(x.value)}" data-kind="${x.kind}" data-cat="${escapeAttr(x.category)}">删除</button>
+        </div>
+      </div>`;
+    }).join('');
+    $('lib-list').innerHTML = html ||
+      `<div class="hint">（脱敏库为空）</div>`;
+  } catch(e) { /* 忽略 */ }
+}
+
+// 搜索输入做防抖，避免每个按键都打一次接口。
+function scheduleRefreshLibrary() {
+  if (libRefreshTimer) clearTimeout(libRefreshTimer);
+  libRefreshTimer = setTimeout(refreshLibrary, 200);
+}
+
+// 初始化/刷新脱敏库顶部下拉框（类别词表）——按库容降序，保留当前选中。
+// 顺序未变则直接返回，避免每次刷新都重渲染、打断正在展开的下拉。
+let libCatOrderKey = '';
+async function initLibrarySelects() {
+  await loadCategoryCounts();
+  const cats = orderedCategories();
+  const key = cats.join('|');
+  if (key === libCatOrderKey) return;
+  libCatOrderKey = key;
+  const addSel = $('lib-add-cat');
+  const keepAdd = addSel.value;
+  addSel.innerHTML = cats.map(c => `<option value="${c}">${escapeHtml(c)}</option>`).join('');
+  addSel.value = (keepAdd && cats.includes(keepAdd)) ? keepAdd : '自定义';
+  const filt = $('lib-cat-filter');
+  const keepF = filt.value;
+  filt.innerHTML = '<option value="">全部类别</option>' +
+    cats.map(c => `<option value="${c}">${escapeHtml(c)}</option>`).join('');
+  filt.value = keepF || '';
+}
+
+// 顶部「加入脱敏库」：在脱敏库内新增一条（可选类别）
+$('lib-add-btn').onclick = async () => {
+  const val = $('lib-add-input').value.trim();
+  if (!val) { alert('请输入要加入脱敏库的值'); return; }
+  const category = $('lib-add-cat').value;
+  try {
+    const r = await fetch('/api/library', { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ value: val, category }) });
+    if (!r.ok) throw new Error(await r.text());
+    state.inLibrary.add(val);
+    $('lib-add-input').value = '';
+    await refreshLibrary();
+  } catch(e) { alert('加入失败：'+e.message); }
+};
+
+// 搜索 / 类别筛选
+$('lib-search').addEventListener('input', scheduleRefreshLibrary);
+$('lib-cat-filter').addEventListener('change', refreshLibrary);
+
+// 清空「自定义」类别（经确认，不可恢复）
+$('lib-clear-custom-btn').addEventListener('click', async () => {
+  if (!confirm('确定清空脱敏库中「自定义」类别的全部条目吗？此操作不可恢复。')) return;
+  try {
+    const r = await fetch('/api/library/category/' + encodeURIComponent('自定义'), { method: 'DELETE' });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    // 同步内存缓存：移除被清空的自定义值
+    for (const v of (data.values || [])) state.inLibrary.delete(v);
+    await refreshLibrary();
+    alert(`已清空「自定义」类别 ${data.deleted} 条。`);
+  } catch (e) { alert('清空失败：' + e.message); }
+});
+
+// 删除条目（事件委托）
+$('lib-list').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.lib-del');
+  if (!btn) return;
+  const val = btn.dataset.val;
+  const src = btn.dataset.kind === 'division' ? '系统(内置)' : '用户';
+  if (!confirm(`确定删除该脱敏库条目？删除后不可恢复。\n\n值：${val}\n来源：${src}\n类别：${btn.dataset.cat}`)) return;
+  try {
+    const r = await fetch('/api/library', { method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ value: val }) });
+    if (!r.ok) throw new Error(await r.text());
+    state.inLibrary.delete(val);
+    await refreshLibrary();
+  } catch(e) { alert('删除失败：'+e.message); }
+});
+
+// 行内修改类别（库内元数据，不影响脱敏占位）
+$('lib-list').addEventListener('change', async (ev) => {
+  const sel = ev.target.closest('.lib-cat');
+  if (!sel) return;
+  const val = sel.dataset.val;
+  const category = sel.value;
+  try {
+    const r = await fetch('/api/library', { method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ value: val, category }) });
+    if (!r.ok) throw new Error(await r.text());
+  } catch(e) { alert('修改类别失败：'+e.message); refreshLibrary(); }
+});
+
+// ---------------------------------------------------------------- 查看映射表
+
+// 打开模态，渲染 entries（{placeholder, original_value}）。当前文档与历史映射共用。
+function openMappingView(entries, title) {
+  const tb = $('mv-rows');
+  tb.innerHTML = (entries && entries.length)
+    ? entries.map(e => `<tr><td class="ph-cell">${escapeHtml(e.placeholder)}</td><td>${escapeHtml(e.original_value)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="hint">（空）</td></tr>';
+  $('mv-title').textContent = title || '映射表';
+  $('mapping-view').hidden = false;
+}
+function closeMappingView() { $('mapping-view').hidden = true; }
+$('mv-close').onclick = closeMappingView;
+$('mapping-view').querySelector('.mv-backdrop').onclick = closeMappingView;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('mapping-view').hidden) closeMappingView();
+});
+$('mv-copy').onclick = async () => {
+  const rows = [...$('mv-rows').querySelectorAll('tr')]
+    .map(r => [r.children[0].textContent, r.children[1].textContent].join('\t')).join('\n');
+  try { await navigator.clipboard.writeText(rows); $('mv-copy').textContent = '已复制'; setTimeout(() => $('mv-copy').textContent = '复制', 1200); }
+  catch (_) { /* 剪贴板不可用时忽略 */ }
+};
+// 当前文档的映射：直接读内存，占位符与 /api/mask 落盘一致（内容寻址，按值查预览表）。
+function currentMappingEntries() {
+  return state.groups
+    .filter(g => g.occurrences.some(o => !o.excluded))
+    .map(g => ({
+      placeholder: g.placeholder || placeholderFor(g.value),
+      original_value: g.value,
+    }));
+}
+$('view-mapping-btn').onclick = () => openMappingView(currentMappingEntries(), `映射表_${state.filename || ''}`);
+// 历史映射：复用 /api/download/{tid}/mapping（返回 {entries:[...]} 或裸数组）。
+async function viewHistoryMapping(tid) {
+  try {
+    const res = await fetch(`/api/download/${encodeURIComponent(tid)}/mapping`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const entries = Array.isArray(data) ? data : (data.entries || []);
+    openMappingView(entries, '映射表（历史）');
+  } catch (e) { alert('查看失败：' + e.message); }
+}
+
+// 批量删除一组映射表（仅删记录，保留任务目录），成功后刷新面板。
+async function deleteTasks(ids) {
+  try {
+    const r = await fetch('/api/tasks', { method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ task_ids: ids }) });
+    if (!r.ok) throw new Error(await r.text());
+    const cur = $('restore-mapping-select').value;
+    if (cur && ids.includes(cur)) {
+      $('restore-mapping-select').value = '';
+      $('mapping-dd-btn').textContent = '（选择本机映射表）';
+    }
+    await refreshTasks();
+  } catch(e) { alert('删除失败：'+e.message); }
+}
+
+// 映射表下拉：展开/收起、选择、逐条删除（带内容预览）、删除选中、清空全部。
+$('mapping-dd-btn').onclick = (e) => {
+  e.stopPropagation();
+  $('mapping-panel').hidden = !$('mapping-panel').hidden;
+};
+$('mapping-panel').addEventListener('change', (ev) => {
+  if (ev.target.closest('.dd-check')) updateSelCount();
+});
+$('mapping-panel').addEventListener('click', async (ev) => {
+  const vw = ev.target.closest('.dd-view');
+  if (vw) { ev.stopPropagation(); await viewHistoryMapping(vw.dataset.val); return; }
+  const del = ev.target.closest('.dd-del');
+  if (del) {
+    ev.stopPropagation();
+    const item = del.closest('.dd-item');
+    const tid = del.dataset.val;
+    const msg = `确定删除该映射表？仅移除记录，源文件与脱敏产物保留。\n\n`
+      + `文件：${item.dataset.file}\n状态：${item.dataset.status}\n`
+      + `创建：${item.dataset.created}\n映射条目：${item.dataset.count} 条`;
+    if (!confirm(msg)) return;
+    await deleteTasks([tid]);
+    return;
+  }
+  const selBtn = ev.target.closest('#dd-del-sel');
+  if (selBtn) {
+    ev.stopPropagation();
+    const ids = [...document.querySelectorAll('#mapping-panel .dd-check:checked')].map(c => c.dataset.val);
+    if (ids.length === 0) return;
+    const fmap = new Map(lastTasks.map(t => [t.task_id, t.source_file]));
+    const names = ids.map(id => '· 映射表_' + (fmap.get(id) || id)).join('\n');
+    if (!confirm(`确定删除选中的 ${ids.length} 个映射表？仅移除记录，源文件与脱敏产物保留。\n\n${names}`)) return;
+    await deleteTasks(ids);
+    return;
+  }
+  const clearBtn = ev.target.closest('#dd-clear');
+  if (clearBtn) {
+    ev.stopPropagation();
+    if (lastTasks.length === 0) return;
+    const names = lastTasks.filter(t=>t.status==='masked').map(t => '· 映射表_' + t.source_file).join('\n');
+    if (!confirm(`确定清空全部（共 ${lastTasks.length} 个）映射表？仅移除记录，源文件与脱敏产物保留。\n\n${names}`)) return;
+    await deleteTasks(lastTasks.map(t => t.task_id));
+    return;
+  }
+  const name = ev.target.closest('.dd-name');
+  if (name) {
+    $('restore-mapping-select').value = name.dataset.val;
+    $('mapping-dd-btn').textContent = '映射表_' + name.textContent.replace(/^映射表_/, '');
+    $('mapping-panel').hidden = true;
+  }
+});
+// 点击下拉之外关闭面板
+document.addEventListener('click', (e)=>{
+  if (!$('mapping-panel').hidden && !e.target.closest('.mapping-dd')) $('mapping-panel').hidden = true;
+});
+
+// 初始化时拉取任务与脱敏库
+initLibrarySelects();
+refreshTasks();
+refreshLibrary();
+
+// 左↔右栏同步滚动（按锚点对齐，而非按比例）
+//
+// 占位符比原文长/短，两栏内容高度不同，纯按比例滚动会越滚越偏。
+// 改用「锚点对齐」：每个脱敏项在左栏是 mark、右栏是 .ph，二者同 gid。
+// 滚动时找到位于视口顶部附近的锚点，把另一栏滚到同一锚点处，长文核对也不跑偏。
+// 中栏（#group-list）保持独立滚动，不参与此同步——它走「点击居中」(focusMiddle)。
+function anchorList() {
+  const left = $('text-view'), right = $('preview-view');
+  const relTop = (el, cont) =>
+    el.getBoundingClientRect().top - cont.getBoundingClientRect().top + cont.scrollTop;
+  const lMax = Math.max(0, left.scrollHeight - left.clientHeight);
+  const rMax = Math.max(0, right.scrollHeight - right.clientHeight);
+
+  const pairs = [];
+
+  // (1) 段首对齐：两栏换行结构完全一致（占位符不含 \n），把每行起点都建成锚点。
+  // 光标按 data-li 一一配对，锚点密度远高于「仅按脱敏项」，残差被限制在单行内。
+  const lLines = left.querySelectorAll('span.line');
+  const rLines = right.querySelectorAll('span.line');
+  const nLine = Math.min(lLines.length, rLines.length);
+  for (let k = 0; k < nLine; k++) {
+    const lt = relTop(lLines[k], left), rt = relTop(rLines[k], right);
+    if (lt >= lMax || rt >= rMax) continue; // 末行交给底部哨兵
+    pairs.push({ left: lt, right: rt });
+  }
+
+  // (2) 脱敏项锚点（顶边+底边）：处理占位符比原文长、还可能折行带来的高度差。
+  // 仅靠段首锚点时，占位符所在行与其下一行之间仍会摊上该占位符的额外高度；
+  // 再锚它的顶/底边，把这段误差一分为二，进一步压低残差。
+  left.querySelectorAll('mark[data-gid]').forEach((m) => {
+    const p = right.querySelector(`.ph[data-gid="${m.dataset.gid}"][data-occ="${m.dataset.occ}"]`);
+    if (!p) return; // 被排除的出现位置在右栏没有对应占位符
+    const mr = m.getBoundingClientRect(), pr = p.getBoundingClientRect();
+    const mt = relTop(m, left), pt = relTop(p, right);
+    const mb = mt + mr.height, pb = pt + pr.height;
+    if (mb >= lMax || pb >= rMax) return;
+    pairs.push({ left: mt, right: pt }, { left: mb, right: pb });
+  });
+
+  pairs.sort((a, b) => (a.left - b.left) || (a.right - b.right));
+
+  const anchors = [];
+  // 顶部哨兵：两栏 scrollTop 都是 0 时显示的都是文档开头，天然对齐。缺了它，
+  // 第一个锚点之前的整段区域都会被钳到该锚点，直接导致「上滚到顶另一边下滚」。
+  anchors.push({ left: 0, right: 0 });
+  for (const a of pairs) {
+    const prev = anchors[anchors.length - 1];
+    // 两栏坐标都须递增，保证正向/反向映射都是单调双射
+    if (a.left <= prev.left || a.right < prev.right) continue;
+    anchors.push(a);
+  }
+  // 底部哨兵：覆盖尾部，使正向/反向映射均为双射。
+  anchors.push({ left: lMax, right: rMax });
+  return anchors;
+}
+
+function syncScroll(srcId, tgtId) {
+  const src = $(srcId), tgt = $(tgtId);
+  const anchors = anchorList();
+  const srcTop = src.scrollTop;
+  // anchorList 恒含「顶部哨兵 + 底部哨兵」，故至少 2 个锚点；一个脱敏项都没有时
+  // 只剩这两个哨兵，插值自然退化为按比例映射，无需再单独兜底。
+  // 插值做法：在「包含 srcTop 的锚点区间」内线性插值。左右栏用同一组按序锚点，
+  // 且按「源栏坐标」选区间、按「目标栏坐标」插值，正向（左→右）与反向（右→左）
+  // 互为精确逆映射——回滚后位置不变，不会把用户的滚动拽回去（修复旧版单一固定
+  // 偏移 + 左右栏内部间距不同导致的拖不动/抖动）。
+  const srcPos = (a) => (srcId === 'text-view' ? a.left : a.right);
+  const tgtPos = (a) => (tgtId === 'text-view' ? a.left : a.right);
+  let k = 0;
+  for (let i = 0; i < anchors.length - 1; i++) {
+    if (srcPos(anchors[i]) <= srcTop) k = i; else break;
+  }
+  const a = anchors[k], b = anchors[k + 1];
+  const span = srcPos(b) - srcPos(a);
+  let t = span > 0 ? (srcTop - srcPos(a)) / span : 0;
+  t = Math.max(0, Math.min(1, t));
+  tgt.scrollTop = tgtPos(a) + t * (tgtPos(b) - tgtPos(a));
+}
+
+function bindSync(aId, bId) {
+  const a = $(aId), b = $(bId);
+  let lock = false;
+  const onScroll = (srcId, tgtId) => {
+    if (state.sheetMode) return; // 表格视图改走直接滚动同步（见 bindSheetSelection）
+    if (lock) return;
+    lock = true;
+    syncScroll(srcId, tgtId);
+    requestAnimationFrame(() => (lock = false));
+  };
+  a.addEventListener('scroll', () => onScroll(aId, bId));
+  b.addEventListener('scroll', () => onScroll(bId, aId));
+}
+bindSync('text-view', 'preview-view');
+
+// ---------------------------------------------------------------- 诊断与版本
+
+// 页头常显版本号：用户反馈时多半只发一张截图，让「哪一份构建」一眼可判。
+async function loadVersion() {
+  try {
+    const r = await fetch('/api/health');
+    if (!r.ok) return;
+    const d = await r.json();
+    // UI 只显示版本号（如 v0.1.0）。构建哈希 / 构建时间等较长信息不铺在界面上，
+    // 需要时看两处即可：①「导出诊断包」里的 meta.json 与 README.txt；
+    // ② GET /api/health（返回 version 与 build）。此处仍挂在 title 上，悬浮可见、不占版面。
+    $('app-version').textContent = 'v' + d.version;
+    $('app-version').title = d.build || ('版本 ' + d.version);
+  } catch (e) { /* 取不到版本号不影响使用，静默即可 */ }
+}
+
+// 一键导出诊断包。服务端有可能失败，所以走 fetch + blob（而非直接跳转下载），
+// 这样失败原因能显示在页头上，而不是浏览器静默下载一个错误页。
+$('diag-btn').onclick = async () => {
+  const ok = await showConfirm('导出诊断包',
+    '诊断包会把这个软件在本机产生的<b>运行日志和设置信息</b>打包成一个压缩文件。' +
+    '它<b>不包含你的任何文件内容，也不包含被脱敏的内容</b>，仅用于帮开发者排查软件问题，' +
+    '可以放心发回给作者。是否现在导出并下载？');
+  if (!ok) return;
+  const msg = $('diag-msg');
+  msg.className = 'hint';
+  msg.textContent = '正在打包…';
+  try {
+    const url = '/api/diagnostics' +
+      (state.taskId ? '?task_id=' + encodeURIComponent(state.taskId) : '');
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '诊断包_' + new Date().toISOString().slice(0, 10) + '.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    msg.className = 'ok';
+    msg.textContent = '诊断包已下载（不含原文与脱敏内容），请发回。';
+  } catch (e) {
+    msg.className = 'error';
+    msg.textContent = '导出失败：' + e.message;
+  }
+};
+
+// 导出「未输出」的脱敏调整（含所在整句原文，仅供作者分析；与诊断包互不相干）。
+$('adjust-export-btn').onclick = async () => {
+  const ok = await showConfirm('导出调整历史',
+    '调整历史会导出你在使用过程中做过的<b>人工调整记录</b>，每条都包含它所在的' +
+    '<b>整句原文</b>。这份文件仅供作者分析软件的识别准确率使用，<b>里面含有原文，' +
+    '请不要外发给其他人</b>。是否现在导出并下载？');
+  if (!ok) return;
+  const msg = $('adjust-msg');
+  msg.className = 'hint';
+  msg.textContent = '正在导出…';
+  try {
+    const res = await fetch('/api/adjust-export');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '脱敏调整_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    msg.className = 'ok';
+    msg.textContent = `已导出 ${data.count || 0} 条调整（含原文，请勿外发）。`;
+  } catch (e) {
+    msg.className = 'error';
+    msg.textContent = '导出失败：' + e.message;
+  }
+};
+
+// 详细日志模式：让用户开着它复现一次再导出，日志里就多了排查线索。
+$('verbose').onchange = async () => {
+  const on = $('verbose').checked;
+  try {
+    const res = await fetch('/api/log-level', { method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ debug: on }) });
+    if (!res.ok) throw new Error(await res.text());
+    $('diag-msg').className = 'ok';
+    $('diag-msg').textContent = on
+      ? '已开启详细日志：请再操作一次复现问题，然后导出诊断包。'
+      : '已关闭详细日志。';
+  } catch (e) {
+    $('diag-msg').className = 'error';
+    $('diag-msg').textContent = '切换失败：' + e.message;
+  }
+};
+
+// ---------------------------------------------------------------- 居中轻提示 / 通用确认框 / 拖拽放置
+
+// 居中轻提示：浮在窗口正中的小黑条，短暂自动消失。用于「未选择文件」等提示（不带句号）。
+let centerToastTimer = null;
+function showCenterToast(text) {
+  const t = $('center-toast');
+  if (!t) return;
+  t.textContent = text;
+  t.hidden = false;
+  if (centerToastTimer) clearTimeout(centerToastTimer);
+  centerToastTimer = setTimeout(() => { t.hidden = true; }, 2200);
+}
+
+// 自定义文件选择：把选中的文件名显示到旁边的 span；未选时留空（避免原生「未选择文件。」）。
+function refreshFileLabel(inputEl, spanId) {
+  const span = $(spanId);
+  if (!span) return;
+  const f = inputEl.files && inputEl.files[0];
+  if (f) { span.textContent = f.name; span.classList.add('file-name--set'); }
+  else { span.textContent = ''; span.classList.remove('file-name--set'); }
+}
+
+// 通用确认框：先把功能用大白话讲清楚，等用户点「确认并下载」才真正执行。
+let cfResolve = null;
+function showConfirm(title, html) {
+  const d = $('confirm-dialog');
+  if (!d) return Promise.resolve(true);
+  $('cf-title').textContent = title;
+  $('cf-text').innerHTML = html;
+  d.hidden = false;
+  return new Promise((resolve) => { cfResolve = resolve; });
+}
+$('cf-cancel').onclick = () => {
+  $('confirm-dialog').hidden = true;
+  if (cfResolve) { const r = cfResolve; cfResolve = null; r(false); }
+};
+$('cf-ok').onclick = () => {
+  $('confirm-dialog').hidden = true;
+  if (cfResolve) { const r = cfResolve; cfResolve = null; r(true); }
+};
+
+// 让「开始 / 还原」两个窗口主区域支持把文件直接拖进来（替代只能点浏览选文件）。
+function setupDropzone(destEl, inputEl, nameSpanId) {
+  if (!destEl || !inputEl) return;
+  let depth = 0;
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  destEl.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth++; destEl.classList.add('drop-active');
+  });
+  destEl.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+  });
+  destEl.addEventListener('dragleave', () => {
+    depth--; if (depth <= 0) { depth = 0; destEl.classList.remove('drop-active'); }
+  });
+  destEl.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth = 0; destEl.classList.remove('drop-active');
+    const f = e.dataTransfer.files[0];
+    if (!f) return;
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    inputEl.files = dt.files;
+    refreshFileLabel(inputEl, nameSpanId);
+    showCenterToast('已放入文件：' + f.name);
+  });
+}
+// 三个可见文件框（开始 / 还原 / 还原的映射表）都改用自定义按钮：选择后即时显示文件名。
+// 注意各 input 的显示 span id 不完全等同 `inputId + '-name'`（上传框是 `file-name`），用显式映射避免错配。
+const nameSpanOf = { 'file-input': 'file-name', 'restore-file': 'restore-file-name', 'restore-mapping': 'restore-mapping-name' };
+Object.entries(nameSpanOf).forEach(([id, spanId]) => {
+  const el = $(id);
+  if (el) el.addEventListener('change', () => refreshFileLabel(el, spanId));
+});
+setupDropzone($('dest-start'), $('file-input'), 'file-name');
+setupDropzone($('dest-restore'), $('restore-file'), 'restore-file-name');
+// 在「开始 / 还原」激活时，阻止把文件拖到窗口其它位置被浏览器直接打开。
+document.addEventListener('dragover', (e) => {
+  const active = document.querySelector('.dest.active');
+  if (active && (active.id === 'dest-start' || active.id === 'dest-restore')
+      && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) {
+    e.preventDefault();
+  }
+});
+document.addEventListener('drop', (e) => {
+  const active = document.querySelector('.dest.active');
+  if (active && (active.id === 'dest-start' || active.id === 'dest-restore')
+      && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) {
+    e.preventDefault();
+  }
+});
+
+// ---------------------------------------------------------------- 初始化
+
+(async function init() {
+  loadVersion();
+  document.addEventListener('click', (e)=>{
+    const p = $('field-panel');
+    if (!p.hidden && !p.contains(e.target) && !e.target.closest('mark[data-gid]') &&
+        !e.target.closest('.ph[data-gid]') && !e.target.closest('.gitem[data-gid]')) closePanel();
+  });
+})();
+</script>
+
+</body>
+</html>
