@@ -7,6 +7,13 @@
 <style>
   /* 能力门控：后端 /api/health 的 engines 声明为 false 的功能，前端据此隐藏 */
   .cap-off { display: none !important; }
+  /* 固定输出目录提示条（套壳/所内）：output_dir 有值时显示 */
+  #output-dir-banner.banner {
+    margin: 0 0 var(--ds-sp-4); padding: 10px 14px;
+    background: #e8f3ff; border: 1px solid #b6d8ff; border-radius: var(--ds-rd-md);
+    color: #1d4e89; font-size: var(--ds-fs-sm); line-height: 1.6;
+  }
+  #output-dir-banner.banner b { word-break: break-all; }
   /* ================= Design Tokens（语义对齐 TDesign；命名空间 --ds-*） ================= */
   :root {
     --ds-font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif;
@@ -321,6 +328,7 @@
       </div>
     </nav>
     <div class="routerview">
+      <div id="output-dir-banner" class="output-dir-only banner">脱敏 / 还原产物已自动保存到：<b id="output-dir-path"></b>（其中「脱敏产物」「还原产物」两个子文件夹）</div>
       <!-- ① 开始：上传 -->
       <div class="dest scroll active" id="dest-start">
         <div class="card">
@@ -392,9 +400,9 @@
         <div class="card" id="result">
           <div class="ok">脱敏完成，双向校验已通过。</div>
           <div class="row" style="margin-top:12px">
-            <button id="dl-masked" class="primary">下载脱敏文件（原格式）</button>
-            <button id="dl-md">以 md 格式导出</button>
-            <button id="dl-txt">以 txt 格式导出</button>
+            <button id="dl-masked" class="primary output-dir-off">下载脱敏文件（原格式）</button>
+            <button id="dl-md" class="output-dir-off">以 md 格式导出</button>
+            <button id="dl-txt" class="output-dir-off">以 txt 格式导出</button>
             <button id="view-mapping-btn">查看映射表</button>
           </div>
           <div class="hint" style="margin-top:10px">映射表已保存在本机，可在「还原」页选择；如需带走，点「导出映射表」。</div>
@@ -423,7 +431,7 @@
           </div>
           <span class="file-name" id="restore-file-name"></span>
           <span class="file-name" id="restore-mapping-name"></span>
-            <button id="export-mapping-btn">导出映射表</button>
+            <button id="export-mapping-btn" class="output-dir-off">导出映射表</button>
             <button id="import-mapping-btn" class="import-only">导入映射表</button>
             <input type="file" id="import-mapping" accept=".json" hidden>
           </div>
@@ -1951,12 +1959,18 @@ $('restore-btn').onclick = async () => {
     const res = await fetch('/api/restore', { method:'POST', body:form });
     if (!res.ok) throw new Error(await res.text());
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = file.name.replace(/(\.[^.]+)?$/, '_已还原$1');
-    a.click(); URL.revokeObjectURL(url);
-    $('restore-msg').className='ok';
-    $('restore-msg').textContent='还原完成，已开始下载。';
+    if (caps && caps.output_dir) {
+      // 套壳/所内：产物已写入「还原产物」文件夹，不再触发浏览器下载。
+      $('restore-msg').className='ok';
+      $('restore-msg').textContent='还原完成，已保存到「还原产物」文件夹（不再浏览器下载）。';
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = file.name.replace(/(\.[^.]+)?$/, '_已还原$1');
+      a.click(); URL.revokeObjectURL(url);
+      $('restore-msg').className='ok';
+      $('restore-msg').textContent='还原完成，已开始下载。';
+    }
   } catch(e) {
     $('restore-msg').className='error';
     $('restore-msg').textContent='还原失败：'+e.message;
@@ -2391,7 +2405,7 @@ bindSync('text-view', 'preview-view');
 // 后端能力声明（来自 /api/health 的 engines）。默认值全开，保证旧后端 / 取不到时
 // 仍呈现完整界面（向后兼容）；健康接口返回后会用真实值覆盖。
 // 这是前端唯一区分 master / lacuna 的依据——绝不写「if (isLacuna)」这类硬编码分支。
-let caps = { regex:true, ner:true, library:true, import_mapping:true, adjust:true };
+let caps = { regex:true, ner:true, library:true, import_mapping:true, adjust:true, output_dir:null };
 
 // 按能力声明显隐各功能区块。元素通过 auto-only / library-only / import-only / adjust-only
 // 类标记，这里统一切换 `.cap-off`。
@@ -2401,6 +2415,13 @@ function applyCaps() {
   document.querySelectorAll('.library-only').forEach(el => el.classList.toggle('cap-off', !caps.library));
   document.querySelectorAll('.import-only').forEach(el => el.classList.toggle('cap-off', !caps.import_mapping));
   document.querySelectorAll('.adjust-only').forEach(el => el.classList.toggle('cap-off', !caps.adjust));
+  // 固定输出目录（套壳/所内）：output_dir 为路径字符串时，显示「已保存至」提示条，
+  // 并隐藏浏览器下载按钮（产物已落到该目录的「脱敏产物」/「还原产物」子文件夹）。
+  const od = caps && caps.output_dir;
+  document.querySelectorAll('.output-dir-only').forEach(el => el.classList.toggle('cap-off', !od));
+  document.querySelectorAll('.output-dir-off').forEach(el => el.classList.toggle('cap-off', !!od));
+  const odp = document.getElementById('output-dir-path');
+  if (odp) odp.textContent = od || '';
   // 工具栏提示语按「自动/纯手动」切换，避免纯手动下出现「规则引擎已自动扫出建议」这类误导文案。
   const mh = document.getElementById('mode-hint');
   if (mh) mh.textContent = auto
