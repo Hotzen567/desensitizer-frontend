@@ -514,6 +514,44 @@
 // 码点数组索引，与后端保持一致。
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 本机访问令牌：启动时从同源 /api/bootstrap 获取，附带到后续 /api/* 请求。
+// 后端 guard 中间件据此做本机鉴权 + Host/Origin 校验，挡住对 127.0.0.1 的
+// DNS 重绑定 / 跨站请求。令牌仅同源页面能取到，外网无法获取。
+// ---------------------------------------------------------------------------
+let __authToken = null;
+let __authReady = (async () => {
+  try {
+    const r = await fetch('/api/bootstrap');
+    if (r.ok) {
+      const j = await r.json();
+      __authToken = (j && j.token) || null;
+    }
+  } catch (e) {
+    // 取不到就保持 null：后续请求会 401，但不会卡死页面。
+    __authToken = null;
+  }
+})();
+const __origFetch = window.fetch ? window.fetch.bind(window) : null;
+if (__origFetch) {
+  window.fetch = async function (input, init) {
+    const url = (typeof input === 'string') ? input : (input && input.url) || '';
+    // bootstrap 自身不附加令牌，避免递归；其余 /api/* 等令牌就绪后附加。
+    if (url.indexOf('/api/bootstrap') === -1 && url.indexOf('/api/') === 0) {
+      await __authReady;
+      if (__authToken) {
+        init = init || {};
+        const hdrs = new Headers(init.headers || undefined);
+        if (!hdrs.has('Authorization')) {
+          hdrs.set('Authorization', 'Bearer ' + __authToken);
+        }
+        init.headers = hdrs;
+      }
+    }
+    return __origFetch(input, init);
+  };
+}
+
 const state = {
   taskId: null, filename: '', chars: [],
   groups: [], nextGid: 1,
