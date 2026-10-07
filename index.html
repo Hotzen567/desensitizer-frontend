@@ -14,6 +14,26 @@
     color: #1d4e89; font-size: var(--ds-fs-sm); line-height: 1.6;
   }
   #output-dir-banner.banner b { word-break: break-all; }
+  /* 内嵌 OOXML 部件提示条：文档含嵌入的 Excel/PPT/Word 时显示（警告色，提示其 PII 会被自动脱敏） */
+  .embedded-banner {
+    margin: 0 0 var(--ds-sp-3); padding: 8px 14px;
+    background: var(--ds-warning-light); border: 1px solid #ffd9b3; border-radius: var(--ds-rd-md);
+    color: #8a4b00; font-size: var(--ds-fs-sm); line-height: 1.6;
+  }
+  /* 内嵌部件面板（中栏，group-list 下方）：只读、可见性，不进可勾选清单 */
+  #embedded-panel { margin-top: var(--ds-sp-4); border-top: 1px dashed var(--ds-bd); padding-top: var(--ds-sp-3); }
+  #embedded-panel .ep-head { font-weight: 600; font-size: var(--ds-fs-sm); color: var(--ds-fg-secondary); margin-bottom: 8px; }
+  #embedded-panel .ep-part {
+    border: 1px solid var(--ds-bd-subtle); border-radius: var(--ds-rd-md);
+    margin-bottom: 10px; padding: 10px 12px; background: var(--ds-bg-secondary);
+  }
+  #embedded-panel .ep-part-name { font-family: var(--ds-font-mono); font-size: var(--ds-fs-xs); color: var(--ds-fg-secondary); word-break: break-all; margin-bottom: 6px; }
+  #embedded-panel .ep-kind { color: var(--ds-brand); }
+  #embedded-panel .ep-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--ds-bd-subtle); }
+  #embedded-panel .ep-item:first-of-type { border-top: none; }
+  #embedded-panel .ep-val { font-family: var(--ds-font-mono); word-break: break-all; flex: 1; min-width: 0; }
+  #embedded-panel .ep-ph { color: var(--ds-ph-fg); background: var(--ds-ph-bg); border-radius: 4px; padding: 1px 6px; font-size: var(--ds-fs-xs); font-family: var(--ds-font-mono); flex: none; }
+  #embedded-panel .badge.auto { background: var(--ds-warning-light); color: var(--ds-warning); border: 1px solid #ffd9b3; flex: none; }
   /* ================= Design Tokens（语义对齐 TDesign；命名空间 --ds-*） ================= */
   :root {
     --ds-font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif;
@@ -372,6 +392,9 @@
 
     <div class="sheet-tabs" id="sheet-tabs" hidden></div>
 
+    <!-- 内嵌 OOXML 部件提示条：文档含嵌入的 Excel/PPT/Word 时显示，提示其 PII 会被自动脱敏 -->
+    <div id="embedded-banner" class="banner embedded-banner" hidden></div>
+
     <div class="three">
       <!-- 左栏：原文 -->
       <div class="col">
@@ -382,6 +405,8 @@
       <div class="col">
         <h3>脱敏清单 <span id="group-count" class="count-pill">0</span></h3>
         <div id="group-list"></div>
+        <!-- 内嵌 OOXML 部件视图：只读、可见性；由 renderEmbedded() 填充，不进可勾选的 group-list -->
+        <div id="embedded-panel" hidden></div>
         <div id="group-empty" class="hint">还没有脱敏项。在左栏拖选文本即可标注。</div>
       </div>
       <!-- 右栏：预览 -->
@@ -562,6 +587,9 @@ const state = {
   focusedGid: null, // 中栏当前高亮项（聚焦时自动展开其「出现位置」）
   inLibrary: new Set(), // 已知在脱敏库中的值（建议项 + 手动加入）
   placeholders: {},     // 值→内容寻址占位符（来自 /api/analyze，预览与实际落盘一致）
+  // 内嵌 OOXML 部件的人工复核视图（来自 /api/analyze 的 embedded 字段）：
+  // 这些 PII 由 /api/mask **自动全量脱敏**，前端只负责「看得见」，不可单独取消。
+  embedded: [],        // EmbeddedPartView[]：每个内嵌部件的自包含小分析（text/entities/suggestions）
   // 表格视图（xlsx）专用状态
   sheetMode: false,
   cells: [],            // 全部单元格视图（来自后端 cell_views）
@@ -817,6 +845,72 @@ function renderPreview() {
     : '<span class="hint">（尚无脱敏项）</span>';
 }
 
+// 渲染内嵌 OOXML 部件视图（来自 /api/analyze 的 embedded 字段）。
+//
+// 设计取舍（与后端对称）：这些 PII 由 /api/mask **自动全量脱敏**，用户在前端**不可单独取消**
+// （否则重引泄漏盲区）；本函数只做「可见性」——把每个内嵌部件（含嵌套）里会被自动脱敏的
+// 内容以只读清单呈现，并明确标「将自动脱敏」。复用 .gitem 同款的视觉令牌，但**不进
+// state.groups**（group-list 的勾选/聚焦事件委托只绑在 #group-list 上，本面板独立容器，
+// 不会误触脱敏开关）。偏移量为码点索引，相对各部件自身文本切片；表格型内嵌件（text 为空）
+// 退化为只展示脱敏库建议值（实体偏移无法在空文本上还原，属罕见情形）。
+function renderEmbedded() {
+  const panel = $('embedded-panel');
+  const banner = $('embedded-banner');
+  const parts = state.embedded || [];
+
+  if (!parts.length) {
+    if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+    if (banner) banner.hidden = true;
+    return;
+  }
+
+  let total = 0;
+  const html = parts.map(p => {
+    const textChars = Array.from(p.text || '');
+    const seen = new Set();
+    const items = [];
+    const pushItem = (value, tag) => {
+      if (!value) return;
+      if (seen.has(value)) return;
+      seen.add(value);
+      items.push({ value, ph: placeholderFor(value), tag });
+    };
+    // 层二实体（正则 / NER）：在自含文本上按码点区间切片取值。
+    for (const e of (p.entities || [])) {
+      if (textChars.length && e.end <= textChars.length) {
+        pushItem(textChars.slice(e.start, e.end).join(''), e.source);
+      }
+    }
+    // 脱敏库建议：直接取值。
+    for (const s of (p.suggestions || [])) pushItem(s.value, s.kind);
+
+    total += items.length;
+    const itemsHtml = items.length
+      ? items.map(it => `<div class="ep-item">
+            <span class="ep-val" title="${escapeAttr(it.value)}">${escapeHtml(it.value)}</span>
+            <span class="ep-ph">${escapeHtml(it.ph)}</span>
+            <span class="badge auto">将自动脱敏</span>
+          </div>`).join('')
+      : '<div class="ep-item hint">（无可识别的脱敏项）</div>';
+
+    return `<div class="ep-part">
+        <div class="ep-part-name">${escapeHtml(p.name)} <span class="ep-kind">${escapeHtml(p.kind)}</span></div>
+        ${itemsHtml}
+      </div>`;
+  }).join('');
+
+  const head = `<div class="ep-head">内嵌部件（将自动脱敏，不可单独取消）· 共 ${parts.length} 个</div>`;
+  panel.hidden = false;
+  panel.innerHTML = head + html;
+
+  if (banner) {
+    banner.hidden = false;
+    banner.textContent =
+      `本文档含 ${parts.length} 个内嵌部件（如嵌入的 Excel/PPT/Word），其中的 ${total} 处 PII ` +
+      `将在执行脱敏时自动处理，不可单独取消。`;
+  }
+}
+
 function renderAll() {
   if (state.sheetMode) {
     state.renderGen++;        // 新代次：换表/换文件/容器宽度变化都走这里
@@ -829,6 +923,7 @@ function renderAll() {
     renderGroups();
     renderPreview();
   }
+  renderEmbedded();          // 内嵌 OOXML 部件视图（只读、可见性）
   updateStatus();
 }
 
@@ -1537,6 +1632,8 @@ $('upload-btn').onclick = async () => {
 
     // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
     state.placeholders = data.placeholders || {};
+    // 内嵌 OOXML 部件视图（仅可见性，mask 阶段全量自动脱敏，不可单独取消）。
+    state.embedded = data.embedded || [];
 
     state.taskId = info.task_id;
     state.filename = info.filename;
@@ -1600,6 +1697,8 @@ async function runDetect() {
     const data = await an.json();
     // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
     state.placeholders = data.placeholders || {};
+    // 内嵌 OOXML 部件视图（仅可见性，mask 阶段全量自动脱敏，不可单独取消）。
+    state.embedded = data.embedded || [];
     // 重建自动识别结果：移除此前由自动识别/脱敏库产生的分组（保留手动标注），
     // 再重新并入「脱敏库命中」与「正则/黑名单实体」。这样清空全部后点自动识别，
     // 脱敏库的硬脱敏也会重新触发；切换金额/日期等可选类型时手动标注不丢失。
