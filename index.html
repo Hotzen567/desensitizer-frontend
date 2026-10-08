@@ -20,6 +20,13 @@
     background: var(--ds-warning-light); border: 1px solid #ffd9b3; border-radius: var(--ds-rd-md);
     color: #8a4b00; font-size: var(--ds-fs-sm); line-height: 1.6;
   }
+  /* NER 静默降级常驻告警（workbuddy #10）：权重存在但加载失败时应始终可见，避免用户误以为已开 */
+  #ner-warning-banner.banner {
+    position: sticky; top: 0; z-index: 20; margin: 0 0 var(--ds-sp-4);
+    padding: 10px 14px; background: #fff4e5; border: 1px solid #ffb84d;
+    border-radius: var(--ds-rd-md); color: #8a4b00; font-size: var(--ds-fs-sm);
+    line-height: 1.6; font-weight: 500;
+  }
   /* 内嵌部件面板（中栏，group-list 下方）：只读、可见性，不进可勾选清单 */
   #embedded-panel { margin-top: var(--ds-sp-4); border-top: 1px dashed var(--ds-bd); padding-top: var(--ds-sp-3); }
   #embedded-panel .ep-head { font-weight: 600; font-size: var(--ds-fs-sm); color: var(--ds-fg-secondary); margin-bottom: 8px; }
@@ -349,6 +356,7 @@
     </nav>
     <div class="routerview">
       <div id="output-dir-banner" class="output-dir-only banner">脱敏 / 还原产物已自动保存到：<b id="output-dir-path"></b>（其中「脱敏产物」「还原产物」两个子文件夹）</div>
+      <div id="ner-warning-banner" class="banner" hidden></div>
       <!-- ① 开始：上传 -->
       <div class="dest scroll active" id="dest-start">
         <div class="card">
@@ -2564,6 +2572,19 @@ function applyCaps() {
   if (mh) mh.textContent = auto
     ? '规则引擎已自动扫出建议，你在列表中确认或删除；也可在左栏拖选文本手动标注，同一值会在全文多处自动归为一组。'
     : '在左栏拖选文本手动标注需要脱敏的内容，同一值会在全文多处自动归为一组；也可把常用值加入右侧脱敏库。';
+  // NER 静默降级常驻告警（workbuddy #10）：权重文件存在（ner=true）却未真正加载（ner_loaded=false）
+  // 时，人名识别退化为纯正则、且前端此前无任何提示——极易误判「已开」。仅在「权重在 + 没加载成功」
+  // 这一危险组合下提示；权重缺失（ner=false，属正常未安装）或加载成功都不提示。
+  const nerWarn = document.getElementById('ner-warning-banner');
+  if (nerWarn) {
+    if (caps && caps.ner === true && caps.ner_loaded === false) {
+      nerWarn.hidden = false;
+      nerWarn.textContent = '人名深度识别（本地 NER 模型）未能加载，当前仅用正则规则识别人名，可能漏脱。'
+        + (caps.ner_load_error ? (' 原因：' + caps.ner_load_error) : ' 请检查模型文件与 onnxruntime 动态库版本是否匹配。');
+    } else {
+      nerWarn.hidden = true;
+    }
+  }
 }
 
 async function loadHealth() {
