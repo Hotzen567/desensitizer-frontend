@@ -1960,9 +1960,22 @@ function updateStatus() {
 
 // 触发浏览器下载（按钮无 href，改用临时 <a> 携带 download 属性点击）。
 function triggerDownload(url, filename) {
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
+  // 必须走 fetch（而非裸 <a> 跳转）：裸 <a> 无法携带 Authorization 头，
+  // 而 /api/download/* 需鉴权，会返回 401 导致「网页报错」。fetch 由全局包装器
+  // 自动注入令牌，再用 blob + createObjectURL 触发下载，失败也能显式提示。
+  fetch(url)
+    .then(res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.blob();
+    })
+    .then(blob => {
+      const a = document.createElement('a');
+      const objUrl = URL.createObjectURL(blob);
+      a.href = objUrl; a.download = filename || '';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(objUrl);
+    })
+    .catch(e => { alert('导出失败：' + e.message); });
 }
 function bindDownload(btn, url, filename) { btn.onclick = () => triggerDownload(url, filename); }
 
