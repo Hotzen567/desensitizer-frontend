@@ -385,6 +385,16 @@
                （金额常要保留来核对账目，日期常要保留来看时效），绑成一个开关不灵活。 -->
           <label class="hint chk auto-only"><input type="checkbox" id="opt-amount" class="opt-type" value="金额"> 识别金额</label>
           <label class="hint chk auto-only"><input type="checkbox" id="opt-date" class="opt-type" value="日期"> 识别日期</label>
+          <!-- 反向开关：让一个**默认脱敏**的类型不脱。上面的「识别 X」只能加可选类型，
+               无法让默认脱敏的类型不脱 —— 案号回归默认脱敏后，对外公开的文书汇编仍需
+               保留案号以便检索核对；没有它，用户只能在几百条建议里逐条取消勾选。
+               优先级：本组勾选 > 上面「识别 X」（同类同时勾选时不脱）。 -->
+          <span class="hint auto-only" style="margin-left:10px">不脱敏：</span>
+          <label class="hint chk auto-only"><input type="checkbox" id="excl-case" class="excl-type" value="案号"> 案号</label>
+          <label class="hint chk auto-only"><input type="checkbox" id="excl-org" class="excl-type" value="企业名"> 企业名</label>
+          <label class="hint chk auto-only"><input type="checkbox" id="excl-addr" class="excl-type" value="地址"> 地址</label>
+          <label class="hint chk auto-only"><input type="checkbox" id="excl-tel" class="excl-type" value="电话"> 电话</label>
+          <label class="hint chk auto-only"><input type="checkbox" id="excl-acct" class="excl-type" value="账号"> 账号</label>
           <!-- 原先「正文人名 / 整段门址」两个复选框已移除：它们是 checked+disabled、无 onchange、
                state 里恒为 true 的**纯展示控件**，根本点不动，不是真开关。
                其中「整段门址」更是在当前默认模型（bert4ner，MSRA PER/ORG/LOC）下**根本不生效**——
@@ -593,6 +603,7 @@ const state = {
   groups: [], nextGid: 1,
   pendingGid: null,
   optionalTypes: [], // 纳入建议的可选类型（金额/日期），默认都不纳入
+  excludeTypes: [],  // 反向：这些类型**不**脱敏（如案号），默认不排除任何类型
   // 注：不再有 nerPerson / nerAddress —— 原先它们是「checked+disabled」的假开关，
   // 现改为**不在 /api/analyze 请求里传这两个字段**，由后端默认值决定（不传即开）。
   focusedGid: null, // 中栏当前高亮项（聚焦时自动展开其「出现位置」）
@@ -1635,9 +1646,15 @@ $('upload-btn').onclick = async () => {
     const up = await fetch('/api/upload', { method:'POST', body:form });
     if (!up.ok) throw new Error(await up.text());
     const info = await up.json();
+    // 先同步一次勾选状态再分析：否则用户在上传前勾选的「不脱敏」类型，
+    // 要等手动点一次「重新识别」才生效（首次结果仍是错的）。
+    syncOptionalTypes();
+    syncExcludeTypes();
     const an = await fetch('/api/analyze', { method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ task_id: info.task_id }) });
+      body: JSON.stringify({ task_id: info.task_id,
+                             optional_types:state.optionalTypes,
+                             exclude_types:state.excludeTypes }) });
     if (!an.ok) throw new Error(await an.text());
     const data = await an.json();
 
@@ -1698,6 +1715,14 @@ function syncOptionalTypes(){
 document.querySelectorAll('.opt-type').forEach(el=>{
   el.onchange = ()=>{ syncOptionalTypes(); if (state.taskId) runDetect(); };
 });
+// 反向开关：勾选 = 该类型**不**脱敏（优先级高于 .opt-type 的「识别 X」）。
+function syncExcludeTypes(){
+  state.excludeTypes = [...document.querySelectorAll('.excl-type')]
+    .filter(el=>el.checked).map(el=>el.value);
+}
+document.querySelectorAll('.excl-type').forEach(el=>{
+  el.onchange = ()=>{ syncExcludeTypes(); if (state.taskId) runDetect(); };
+});
 // NER 不再有前端开关（原 checkbox 是 checked+disabled 的纯展示控件，已移除）；
 // 请求里也不再传 ner_person / ner_address —— 后端语义「不传即开」，可用性由后端
 // ner::is_loaded() 自行判定。故此处无需任何 onchange 处理。
@@ -1712,7 +1737,8 @@ async function runDetect() {
     const an = await fetch('/api/analyze', { method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ task_id:state.taskId,
-                             optional_types:state.optionalTypes }) });
+                             optional_types:state.optionalTypes,
+                             exclude_types:state.excludeTypes }) });
     if (!an.ok) throw new Error(await an.text());
     const data = await an.json();
     // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
@@ -2087,9 +2113,12 @@ $('mask-btn').onclick = async () => {
   $('mask-msg').textContent='';
   $('mask-btn').disabled = true;
   try {
+    // exclude_types 一并带上：它不影响本次 spans（用户已勾选），只用于让内嵌件
+    // 的自动全量脱敏与外层口径一致（后端注释：内嵌件用户看不见、不依赖勾选）。
     const res = await fetch('/api/mask', { method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ task_id:state.taskId, spans }) });
+      body: JSON.stringify({ task_id:state.taskId, spans,
+                             exclude_types:state.excludeTypes }) });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     // 三种下载均绑定为可点击的按钮（原格式蓝色高亮，md/txt 普通按钮）。
