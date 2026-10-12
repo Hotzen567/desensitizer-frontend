@@ -126,6 +126,14 @@
   .error { color:var(--ds-error); font-size:var(--ds-fs-sm); margin-top:8px; white-space:pre-wrap; }
   .ok { color:var(--ds-success); font-size:var(--ds-fs-sm); margin-top:8px; }
   .chk { display:flex; gap:6px; align-items:center; white-space:nowrap; }
+  /* 高级设置（可折叠）：仅层三可用时显示；收起时只露 summary，展开露出 num_predict 输入 */
+  .adv { position:relative; border:1px solid var(--ds-border, #ccc); border-radius:6px; padding:2px 8px; }
+  .adv > summary { cursor:pointer; list-style:none; font-size:var(--ds-fs-sm); color:var(--ds-fg-secondary); }
+  .adv > summary::-webkit-details-marker { display:none; }
+  .adv > summary::before { content:"⚙ "; }
+  .adv[open] { position:absolute; z-index:20; background:var(--ds-bg, #fff); box-shadow:0 4px 16px rgba(0,0,0,.12); }
+  .adv .adv-body { display:flex; flex-direction:column; gap:6px; padding:8px 2px 2px; }
+  .adv input[type=number] { width:7em; }
 
   /* 三栏 */
   /* 三栏不对等：左右两个表格需要更多宽度，中栏（脱敏项目）可以窄一些。
@@ -385,6 +393,16 @@
           <!-- 层三 LLM 补漏开关：仅在后端声明 layer3 能力（caps.layer3）时显示（auto 版显示、manual 版隐藏）。
                默认勾选（开启）；取消则 disable_layer3=true，只跑层二（正则+NER），analyze 省去一次本地 LLM 推理。 -->
           <label class="hint chk layer3-only"><input type="checkbox" id="opt-layer3" checked title="取消后将只跑层二（正则+NER），不再调用本地大模型补漏，速度更快"> 层三 LLM 补漏</label>
+          <!-- 高级设置：仅层三可用时显示（layer3-only）。num_predict 覆盖单次生成 token 上限，
+               与后端 OLLAMA_NUM_PREDICT / 默认 4096 形成「前端覆盖 > 环境变量 > 默认」的优先级。 -->
+          <details class="adv layer3-only" id="opt-adv">
+            <summary>高级设置</summary>
+            <div class="adv-body">
+              <label class="hint" title="层三大模型单次生成的最大 token 数；过大更慢且占显存，过小可能截断补漏结果。留空=默认 4096（或后端 OLLAMA_NUM_PREDICT）">层三生成上限 (num_predict)
+                <input type="number" id="opt-num-predict" min="256" max="65536" step="256" placeholder="默认 4096">
+              </label>
+            </div>
+          </details>
           <!-- 原先「正文人名 / 整段门址」两个复选框已移除：它们是 checked+disabled、无 onchange、
                state 里恒为 true 的**纯展示控件**，根本点不动，不是真开关。
                其中「整段门址」更是在当前默认模型（bert4ner，MSRA PER/ORG/LOC）下**根本不生效**——
@@ -1692,6 +1710,9 @@ document.querySelectorAll('.opt-type').forEach(el=>{
 // 层三 LLM 补漏开关（仅 auto 版可见）：切换即重跑识别。
 const layer3Toggle = document.getElementById('opt-layer3');
 if (layer3Toggle) layer3Toggle.onchange = ()=>{ if (state.taskId) runDetect(); };
+// 高级设置里的 num_predict 改动后，若已解析过一次则立即按新上限重跑层三。
+const npInput = document.getElementById('opt-num-predict');
+if (npInput) npInput.onchange = ()=>{ if (state.taskId) runDetect(); };
 // NER 不再有前端开关（原 checkbox 是 checked+disabled 的纯展示控件，已移除）；
 // 请求里也不再传 ner_person / ner_address —— 后端语义「不传即开」，可用性由后端
 // ner::is_loaded() 自行判定。故此处无需任何 onchange 处理。
@@ -1706,11 +1727,20 @@ async function runDetect() {
     // 层三开关：取消勾选 → disable_layer3=true，只跑层二。
     const layer3El = document.getElementById('opt-layer3');
     const disableLayer3 = layer3El ? !layer3El.checked : false;
+    // 高级设置：num_predict（层三次生成 token 上限）。仅当用户显式填入合法正值才覆盖后端默认；
+    // 留空则 JSON.stringify 自动省略该字段，后端回落到 OLLAMA_NUM_PREDICT / 默认 4096。
+    const npEl = document.getElementById('opt-num-predict');
+    let numPredict = undefined;
+    if (npEl) {
+      const raw = npEl.value.trim();
+      if (raw !== '') { const n = parseInt(raw, 10); if (!isNaN(n) && n > 0) numPredict = n; }
+    }
     const an = await fetch('/api/analyze', { method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ task_id:state.taskId,
                              optional_types:state.optionalTypes,
-                             disable_layer3: disableLayer3 }) });
+                             disable_layer3: disableLayer3,
+                             num_predict: numPredict }) });
     if (!an.ok) throw new Error(await an.text());
     const data = await an.json();
     // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
