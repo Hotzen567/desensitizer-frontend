@@ -382,6 +382,9 @@
                （金额常要保留来核对账目，日期常要保留来看时效），绑成一个开关不灵活。 -->
           <label class="hint chk auto-only"><input type="checkbox" id="opt-amount" class="opt-type" value="金额"> 识别金额</label>
           <label class="hint chk auto-only"><input type="checkbox" id="opt-date" class="opt-type" value="日期"> 识别日期</label>
+          <!-- 层三 LLM 补漏开关：仅在后端声明 layer3 能力（caps.layer3）时显示（auto 版显示、manual 版隐藏）。
+               默认勾选（开启）；取消则 disable_layer3=true，只跑层二（正则+NER），analyze 省去一次本地 LLM 推理。 -->
+          <label class="hint chk layer3-only"><input type="checkbox" id="opt-layer3" checked title="取消后将只跑层二（正则+NER），不再调用本地大模型补漏，速度更快"> 层三 LLM 补漏</label>
           <!-- 原先「正文人名 / 整段门址」两个复选框已移除：它们是 checked+disabled、无 onchange、
                state 里恒为 true 的**纯展示控件**，根本点不动，不是真开关。
                其中「整段门址」更是在当前默认模型（bert4ner，MSRA PER/ORG/LOC）下**根本不生效**——
@@ -1686,6 +1689,9 @@ function syncOptionalTypes(){
 document.querySelectorAll('.opt-type').forEach(el=>{
   el.onchange = ()=>{ syncOptionalTypes(); if (state.taskId) runDetect(); };
 });
+// 层三 LLM 补漏开关（仅 auto 版可见）：切换即重跑识别。
+const layer3Toggle = document.getElementById('opt-layer3');
+if (layer3Toggle) layer3Toggle.onchange = ()=>{ if (state.taskId) runDetect(); };
 // NER 不再有前端开关（原 checkbox 是 checked+disabled 的纯展示控件，已移除）；
 // 请求里也不再传 ner_person / ner_address —— 后端语义「不传即开」，可用性由后端
 // ner::is_loaded() 自行判定。故此处无需任何 onchange 处理。
@@ -1697,10 +1703,14 @@ async function runDetect() {
   try {
     // 不再发送 threshold：阈值已固定（准确性优先），由服务端 recognize::DEFAULT_THRESHOLD 决定。
     // 也不再发送 ner_person / ner_address：见上方说明（不传即开）。
+    // 层三开关：取消勾选 → disable_layer3=true，只跑层二。
+    const layer3El = document.getElementById('opt-layer3');
+    const disableLayer3 = layer3El ? !layer3El.checked : false;
     const an = await fetch('/api/analyze', { method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ task_id:state.taskId,
-                             optional_types:state.optionalTypes }) });
+                             optional_types:state.optionalTypes,
+                             disable_layer3: disableLayer3 }) });
     if (!an.ok) throw new Error(await an.text());
     const data = await an.json();
     // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
@@ -1960,9 +1970,22 @@ function updateStatus() {
 
 // 触发浏览器下载（按钮无 href，改用临时 <a> 携带 download 属性点击）。
 function triggerDownload(url, filename) {
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
+  // 必须走 fetch（而非裸 <a> 跳转）：裸 <a> 无法携带 Authorization 头，
+  // 而 /api/download/* 需鉴权，会返回 401 导致「网页报错」。fetch 由全局包装器
+  // 自动注入令牌，再用 blob + createObjectURL 触发下载，失败也能显式提示。
+  fetch(url)
+    .then(res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.blob();
+    })
+    .then(blob => {
+      const a = document.createElement('a');
+      const objUrl = URL.createObjectURL(blob);
+      a.href = objUrl; a.download = filename || '';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(objUrl);
+    })
+    .catch(e => { alert('导出失败：' + e.message); });
 }
 function bindDownload(btn, url, filename) { btn.onclick = () => triggerDownload(url, filename); }
 
@@ -2557,6 +2580,7 @@ let caps = { regex:true, ner:true, library:true, import_mapping:true, adjust:tru
 function applyCaps() {
   const auto = !!(caps && (caps.regex || caps.ner));
   document.querySelectorAll('.auto-only').forEach(el => el.classList.toggle('cap-off', !auto));
+  document.querySelectorAll('.layer3-only').forEach(el => el.classList.toggle('cap-off', !caps.layer3));
   document.querySelectorAll('.library-only').forEach(el => el.classList.toggle('cap-off', !caps.library));
   document.querySelectorAll('.import-only').forEach(el => el.classList.toggle('cap-off', !caps.import_mapping));
   document.querySelectorAll('.adjust-only').forEach(el => el.classList.toggle('cap-off', !caps.adjust));
