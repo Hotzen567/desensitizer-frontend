@@ -336,6 +336,46 @@
   .file-name:empty { display:none; }
   .file-name--set { color:var(--ds-brand); font-weight:600; padding:3px 0; }
   .file-name--set::before { content:"✓ 已选择："; font-weight:600; }
+
+  /* ================= 批量处理：文件标签栏 + 聚合值清单 ================= */
+  .batch-files { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .batch-files:empty { display:none; }
+  .batch-file-tab { display:inline-flex; align-items:center; gap:6px; max-width:320px;
+                    padding:4px 8px; border:1px solid var(--ds-bd-subtle); border-radius:var(--ds-rd-sm);
+                    background:var(--ds-bg-component); font-size:var(--ds-fs-sm); }
+  .batch-file-tab .bt-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .batch-file-tab .bt-del { border:none; background:transparent; color:var(--ds-fg-secondary);
+                            cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
+  .batch-file-tab .bt-del:hover { color:var(--ds-error); }
+  .batch-file-tab .bt-prev { border:none; background:transparent; color:var(--ds-brand);
+                             cursor:pointer; padding:0 2px; font-size:var(--ds-fs-xs); }
+  .batch-file-tab .bt-prev:hover { text-decoration:underline; }
+  /* 批量预览提示条：说明当前看的是批次里第几份、勾选如何回写整批、并给返回出口 */
+  #batch-preview-banner {
+    display:flex; align-items:center; gap:12px;
+    margin: 0 0 var(--ds-sp-3); padding: 8px 14px;
+    background:#e8f3ff; border:1px solid #b6d8ff; border-radius:var(--ds-rd-md);
+    color:#1d4e89; font-size:var(--ds-fs-sm); line-height:1.6;
+  }
+  #batch-preview-banner[hidden] { display:none; }
+  #batch-preview-banner .bpb-text { flex:1; }
+
+  .bv-row { border:1px solid var(--ds-bd-subtle); border-radius:var(--ds-rd-sm);
+            padding:8px 10px; margin-bottom:6px; background:var(--ds-bg-container); }
+  .bv-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .bv-check { flex:none; margin:0; cursor:pointer; }
+  .bv-value { font-weight:600; word-break:break-all; }
+  .bv-meta { color:var(--ds-fg-secondary); font-size:var(--ds-fs-xs); white-space:nowrap; }
+  /* 取消勾选 = 该值全批保留：整行灰掉 + 值加删除线，让用户一眼看出「这批不脱它」 */
+  .bv-row.bv-off { opacity:.55; }
+  .bv-row.bv-off .bv-value { text-decoration:line-through; }
+  /* 上下文抽查：展开后列出该值的命中位置样例（文件名!表!单元格） */
+  .bv-locs { margin-top:6px; margin-left:26px; color:var(--ds-fg-secondary);
+             font-size:var(--ds-fs-xs); display:flex; flex-wrap:wrap; gap:4px 14px; }
+  .bv-locs[hidden] { display:none; }
+  .bfile-row { display:flex; align-items:center; gap:10px; padding:4px 0;
+               border-bottom:1px solid var(--ds-bd-subtle); font-size:var(--ds-fs-sm); }
+  .bfile-row:last-child { border-bottom:none; }
 </style>
 </head>
 <body>
@@ -350,6 +390,7 @@
   <div class="shell-body">
     <nav class="navrail" id="navrail">
       <button class="nav-item active" data-dest="start">开始</button>
+      <button class="nav-item" data-dest="batch">批量</button>
       <button class="nav-item" data-dest="annotate" id="nav-annotate" disabled>标注</button>
       <button class="nav-item" data-dest="export" id="nav-export" disabled>导出</button>
       <button class="nav-item" data-dest="restore">还原</button>
@@ -382,6 +423,77 @@
           </div>
           <span class="file-name" id="file-name"></span>
           <div id="upload-msg" class="error"></div>
+        </div>
+      </div>
+
+      <!-- ①b 批量：多文件上传 → 全批次聚合值清单 → 整批脱敏 -->
+      <!--
+        为什么批量**不显示逐份正文**：批量场景（几百份结构一致的债权表）下，
+        逐份三栏要勾几百次，且「同名不同义」的风险被藏起来——张三在甲合同是当事人、
+        在乙合同是见证人，逐份看根本发现不了。聚合成一张清单后同名只占一行，
+        这个风险才暴露得出来；用户也只需对这一行决策一次。
+        代价是看不到上下文，故每行给「位置样例」做抽查（后端最多回 8 条）。
+      -->
+      <div class="dest scroll" id="dest-batch">
+        <div class="card">
+          <h2>批量处理</h2>
+          <p class="hint">一次处理多份结构相近的文书（如几百份债权表）。<b>决策以「值」为单位</b>：全批次相同的值并成一行，你只需决策一次，即应用到每一份。</p>
+          <div class="row" style="margin-top:12px">
+            <label class="file-btn" for="batch-file-input" title="按住 Ctrl / Shift 可一次选择多份">选择多份文件
+              <input type="file" id="batch-file-input" multiple accept=".docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,.pdf" class="visually-hidden">
+            </label>
+            <button id="batch-upload-btn" class="primary">上传并建立批次</button>
+            <button id="batch-append-btn" title="后端批次不支持增量追加，追加会连同已选文件一起重新上传">追加文件</button>
+            <button id="batch-clear-btn">清空批次</button>
+            <span class="hint" id="batch-upload-hint"></span>
+          </div>
+          <div id="batch-files" class="batch-files"></div>
+          <div id="batch-upload-msg" class="error"></div>
+        </div>
+
+        <div class="card" id="batch-analyze-card" hidden>
+          <div class="row">
+            <span class="hint auto-only">纳入识别：</span>
+            <label class="hint chk auto-only"><input type="checkbox" class="b-opt-type" value="金额"> 金额</label>
+            <label class="hint chk auto-only"><input type="checkbox" class="b-opt-type" value="日期"> 日期</label>
+            <span class="hint auto-only" style="margin-left:10px">不脱敏：</span>
+            <label class="hint chk auto-only"><input type="checkbox" class="b-excl-type" value="案号"> 案号</label>
+            <label class="hint chk auto-only"><input type="checkbox" class="b-excl-type" value="企业名"> 企业名</label>
+            <label class="hint chk auto-only"><input type="checkbox" class="b-excl-type" value="地址"> 地址</label>
+            <label class="hint chk auto-only"><input type="checkbox" class="b-excl-type" value="电话"> 电话</label>
+            <label class="hint chk auto-only"><input type="checkbox" class="b-excl-type" value="账号"> 账号</label>
+            <button id="batch-analyze-btn" class="primary">批量识别</button>
+            <span class="hint">识别只跑规则与本地模型，不联网。</span>
+            <span id="batch-analyze-msg" class="error"></span>
+          </div>
+        </div>
+
+        <div class="card" id="batch-values-card" hidden>
+          <div class="row">
+            <h3 style="margin:0">全批次值清单 <span id="batch-value-count" class="count-pill">0</span></h3>
+            <span class="hint">默认全部脱敏；<b>取消勾选 = 该值在整批里保留</b>。</span>
+            <span style="flex:1"></span>
+            <input type="text" id="batch-search" placeholder="搜索值…" style="width:180px">
+            <button id="batch-all-btn">全选</button>
+            <button id="batch-none-btn">全不选</button>
+            <button id="batch-mask-btn" class="primary">执行批量脱敏</button>
+          </div>
+          <!-- 扫描件类告知：文本层已脱、图像层没动。批处理里更容易被默认成「整批都脱干净了」，
+               所以提到批次层统一告知，不能淹没在逐份结果里。 -->
+          <div id="batch-image-banner" class="banner embedded-banner" hidden></div>
+          <!-- 丢弃告知：与上面不同，这是「产物里少了东西」，属于静默丢失，必须响亮。 -->
+          <div id="batch-emb-banner" class="banner" hidden></div>
+          <div id="batch-value-list"></div>
+          <div id="batch-mask-msg" class="error"></div>
+        </div>
+
+        <div class="card" id="batch-result-card" hidden>
+          <div class="ok" id="batch-result-summary"></div>
+          <div class="row" style="margin-top:12px">
+            <button id="batch-dl-zip" class="primary">下载全部产物（ZIP，含合并映射表）</button>
+            <span class="hint">映射表请妥善保存：跨机还原要用，丢了无法还原。</span>
+          </div>
+          <div id="batch-result-list" style="margin-top:10px"></div>
         </div>
       </div>
 
@@ -433,6 +545,12 @@
           <button id="mask-btn" class="primary">执行脱敏</button>
           <button id="clear-btn">清空全部</button>
         </div>
+
+    <!-- 批量预览提示条：从批量页点「预览」进来时显示（在 #work 内，切走目的地自动隐藏） -->
+    <div id="batch-preview-banner" hidden>
+      <span class="bpb-text"></span>
+      <button id="bpb-back">返回批量</button>
+    </div>
 
     <div class="sheet-tabs" id="sheet-tabs" hidden></div>
 
@@ -655,6 +773,11 @@ const state = {
   focusedOcc: null,     // 表格视图下当前精确高亮的脱敏段 {gid, occ}；renderCellContent 据此给
                         // 对应 <mark>/<span class="ph"> 加 flash，使「中栏点击定位」与 docx 一样
                         // 只精确高亮被点中的那一段，而非整格；滚动重绘不清除。
+  // 批量预览上下文：从批量页点「预览」进入单文件视图时非空，其余时候为 null。
+  // 非空即处于「批量预览」模式，此时：① 勾选会回写批次的 ignore_values；
+  // ② 强制关层三（与 /api/batch/analyze 对齐，见 previewBatchFile 注释）；
+  // ③ 单份「执行脱敏」禁用（整批必须回批量页执行，否则两边产物不一致）。
+  batchPreview: null,   // { taskId, filename, index, seen:Set<值> }
 };
 
 // 表格布局常量（与 CSS 中的字号保持一致，估算行高才准）
@@ -1617,7 +1740,10 @@ function openPanel(gid, anchor) {
     if (g.source === 'auto' || g.source === 'ner')
       for (const o of g.occurrences)
         if (!o.excluded) logAdjust('delete', g.value, o.start, o.end, null);
-    state.groups = state.groups.filter(x=>x.gid!==gid); closePanel(); renderAll();
+    // 批量预览下「删除此条」＝这个值整批不脱，靠 seen 集合回写（groups 里已找不到它）。
+    state.groups = state.groups.filter(x=>x.gid!==gid);
+    syncBatchIgnoredFromGroups();
+    closePanel(); renderAll();
   };
   $('panel-close').onclick = closePanel;
 
@@ -1662,6 +1788,9 @@ $('upload-btn').onclick = async () => {
   const input = $('file-input');
   $('upload-msg').textContent = '';
   if (!input.files.length) { showCenterToast('请先选择文件'); return; }
+  // 走单文件上传 = 退出批量预览模式（否则上一份的批次上下文会混进新文件：
+  // 勾选仍回写旧批次的 ignore_values，而这份根本不在那个批次里）。
+  exitBatchPreview(false);
   const form = new FormData();
   form.append('file', input.files[0]);
   $('upload-btn').disabled = true;
@@ -1730,6 +1859,481 @@ $('upload-btn').onclick = async () => {
   finally { $('upload-btn').disabled = false; }
 };
 
+// ---------------------------------------------------------------- 批量处理
+//
+// 与单文件流程的根本差别：**决策以「值」为单位，而非字符偏移**。
+// 不同文件的偏移互不相关（第 1234 字符在另一份里毫无意义），只有「值」能跨文件复用。
+// 故批量界面不展示逐份正文，只给一张全批次聚合清单（值 → 出现在几份、命中几次、位置样例），
+// 在这一张清单上做一次决策，后端再把它应用到全批每一份。
+const batch = {
+  batchId: null,
+  rawFiles: [],       // 用户选中的 File 对象；后端批次不支持增量追加，追加时需整批重传
+  files: [],          // [{ task_id, filename }]
+  values: [],         // BatchValueView[]：后端已按 file_count 降序（跨文件最广的排最前）
+  ignored: new Set(), // 用户取消勾选的值 → 提交为 ignore_values
+  openValue: null,    // 当前展开「位置样例」的值（上下文抽查）
+  masked: false,      // 是否已执行过整批脱敏
+};
+
+function batchOptionalTypes() {
+  return [...document.querySelectorAll('.b-opt-type')].filter(el => el.checked).map(el => el.value);
+}
+function batchExcludeTypes() {
+  return [...document.querySelectorAll('.b-excl-type')].filter(el => el.checked).map(el => el.value);
+}
+// 改勾选只影响**下一次**「批量识别」：已出的清单是上次参数算出来的，
+// 若静默沿用会让界面与结果不符（勾选改了、清单没变），故不自动重算。
+document.querySelectorAll('.b-opt-type, .b-excl-type').forEach(el => {
+  el.onchange = () => { if (batch.values.length) $('batch-analyze-msg').textContent = '勾选已改，请重新「批量识别」'; };
+});
+
+// ---------------------------------------------------------------- 批量预览
+//
+// 批量页只给「聚合值清单」，看不到正文 —— 用户无法判断某个值在具体上下文里
+// 到底该不该脱（同名不同义、表头误判、企业名只识别出地名前缀，都只能看原文发现）。
+// 这里补齐这一步：点某份的「预览」→ 用该份的 task_id 直接调单文件 /api/analyze
+// （后端零改动：批次里每份本来就是独立 task），复用现成的原文/脱敏后双栏
+// （xlsx 是真网格），看完回批量页，勾选原样带回。
+//
+// 两处必须与 /api/batch/analyze 对齐，否则「预览所见」≠「批量所脱」：
+//  ① disable_layer3 恒 true —— 批量强制关层三，单文件默认开（会调本地 LLM 补漏），
+//     不关就会出现「预览里标了、批量清单里没有」的假象，用户以为会脱、实际没脱。
+//  ② optional_types / exclude_types 取批量页的勾选 —— 两边是两套独立控件，
+//     进入时以批量页为准覆盖，返回时把改动同步回去。
+
+// 进入预览：批量页的类型勾选 → 覆盖标注页工具栏
+function syncTypesFromBatch() {
+  const bOpt = new Set(batchOptionalTypes());
+  const bExcl = new Set(batchExcludeTypes());
+  document.querySelectorAll('.opt-type').forEach(el => { el.checked = bOpt.has(el.value); });
+  document.querySelectorAll('.excl-type').forEach(el => { el.checked = bExcl.has(el.value); });
+  syncOptionalTypes();
+  syncExcludeTypes();
+}
+
+// 返回批量：标注页改过的类型勾选 → 同步回批量页。
+// 有变化必须提示重识别：已出的清单是旧参数算出来的，静默沿用就是「改了没生效」。
+function syncTypesToBatch() {
+  let changed = false;
+  const opt = new Set(state.optionalTypes), excl = new Set(state.excludeTypes);
+  document.querySelectorAll('.b-opt-type').forEach(el => {
+    const want = opt.has(el.value);
+    if (el.checked !== want) { el.checked = want; changed = true; }
+  });
+  document.querySelectorAll('.b-excl-type').forEach(el => {
+    const want = excl.has(el.value);
+    if (el.checked !== want) { el.checked = want; changed = true; }
+  });
+  if (changed && batch.values.length)
+    $('batch-analyze-msg').textContent = '类型勾选已改（来自预览页），请重新「批量识别」';
+}
+
+// 把「预览里的排除状态」回写批次。
+// 粒度不同必须定死规则：批量是**按值**生效（ignore_values 跨文件），预览里可逐处排除。
+//   · 该值每一处都被取消 → 视为「整批都不脱它」→ 加入 batch.ignored；
+//   · 只要还有一处保留 → 不加入（保守：仍脱）。
+// 偏向「仍脱」的理由是代价不对等：漏脱不可逆、过度脱可逆，
+// 不能因为用户随手勾掉几处就悄悄把整批的这个值放行。
+function syncBatchIgnoredFromGroups() {
+  const bp = state.batchPreview;
+  if (!bp) return;
+  for (const g of state.groups) {
+    if (!g.value) continue;
+    const allOff = g.occurrences.length > 0 && g.occurrences.every(o => o.excluded);
+    if (allOff) batch.ignored.add(g.value); else batch.ignored.delete(g.value);
+  }
+  // 「删除此条」后值已从 groups 消失，上面的遍历够不着。
+  // 只对**本份确实出现过**的值判定，否则批次清单里那些本份没命中的值
+  // 会被误判成「用户删了」而整批放行 —— 那正是漏脱。
+  if (bp.seen)
+    for (const v of bp.seen)
+      if (!state.groups.some(g => g.value === v)) batch.ignored.add(v);
+}
+
+// 提示条 + 「执行脱敏」禁用（整批必须回批量页执行，否则这份先脱、整批再脱一次，
+// 两份产物互相打架，用户分不清手上哪个是真的）。
+function updateBatchPreviewChrome() {
+  const on = !!state.batchPreview;
+  const b = $('batch-preview-banner');
+  if (b) {
+    b.hidden = !on;
+    if (on) {
+      const bp = state.batchPreview;
+      b.querySelector('.bpb-text').textContent =
+        `批量预览：${bp.filename}（第 ${bp.index + 1} / ${batch.files.length} 份）` +
+        ' —— 取消勾选＝该值在整批中保留不脱（需该值的全部出现处都取消）；' +
+        '拖选新增的标注不会进入批量产物。';
+    }
+  }
+  const mb = $('mask-btn');
+  if (mb) {
+    mb.disabled = on;
+    mb.title = on ? '批量预览中：整批脱敏请在「批量」页执行' : '';
+  }
+}
+
+async function previewBatchFile(i) {
+  const f = batch.files[i];
+  if (!f) return;
+  $('batch-upload-msg').className = '';
+  $('batch-upload-msg').textContent = '正在载入预览…';
+  try {
+    syncTypesFromBatch();
+    const r = await fetch('/api/analyze', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: f.task_id,
+                             optional_types: batchOptionalTypes(),
+                             exclude_types: batchExcludeTypes(),
+                             disable_layer3: true }) });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+
+    state.taskId = f.task_id;
+    state.filename = f.filename;
+    state.groups = []; state.nextGid = 1;
+    state.focusedGid = null; state.pendingGid = null;
+    state.focusCell = null; state.focusedOcc = null;
+    closePanel();
+    if (data.cells && data.cells.length) {
+      state.sheetMode = true;
+      state.cells = data.cells;
+      buildGrid(data.cells);
+      state.activeSheet = state.sheets[0];
+      bindSheetSelection();
+      $('mode-hint').textContent =
+        '表格视图（批量预览）：可逐格取消勾选；拖选新增的标注不会进入批量产物。';
+    } else {
+      state.sheetMode = false;
+      state.chars = Array.from(data.text || '');
+      $('mode-hint').textContent =
+        '批量预览：取消勾选＝该值整批保留不脱；拖选新增的标注不会进入批量产物。';
+    }
+    applyAnalyzeData(data);
+    // 批次里已决定「整批保留」的值 → 这一份同样显示为已排除，两处不许打架
+    for (const g of state.groups)
+      if (batch.ignored.has(g.value)) for (const o of g.occurrences) o.excluded = true;
+    state.batchPreview = { taskId: f.task_id, filename: f.filename, index: i,
+                           seen: new Set(state.groups.map(g => g.value)) };
+    renderAll();
+    $('nav-annotate').disabled = false;
+    $('nav-export').disabled = true;
+    $('file-chip').hidden = false;
+    $('file-chip').textContent = f.filename;
+    updateBatchPreviewChrome();
+    showDest('annotate');
+    $('batch-upload-msg').className = 'ok';
+    $('batch-upload-msg').textContent = '';
+  } catch (e) {
+    $('batch-upload-msg').className = 'error';
+    $('batch-upload-msg').textContent = '预览失败：' + e.message;
+  }
+}
+
+// 退出批量预览：back=true 时同时切回批量页（并把勾选同步进值清单）。
+function exitBatchPreview(back) {
+  if (!state.batchPreview) return;
+  syncBatchIgnoredFromGroups();
+  syncTypesToBatch();
+  state.batchPreview = null;
+  updateBatchPreviewChrome();
+  renderBatchValues();
+  if (back) showDest('batch');
+}
+$('bpb-back').onclick = () => exitBatchPreview(true);
+
+function renderBatchFiles() {
+  const box = $('batch-files');
+  box.innerHTML = '';
+  batch.files.forEach((f, i) => {
+    const tab = document.createElement('span');
+    tab.className = 'batch-file-tab';
+    const nm = document.createElement('span');
+    nm.className = 'bt-name'; nm.textContent = f.filename; nm.title = f.filename;
+    const pv = document.createElement('button');
+    pv.className = 'bt-prev'; pv.type = 'button'; pv.textContent = '预览';
+    pv.title = '打开这一份的原文/脱敏后双栏预览，看这些值在上下文里是否真的该脱';
+    pv.onclick = () => previewBatchFile(i);
+    const del = document.createElement('button');
+    del.className = 'bt-del'; del.type = 'button'; del.textContent = '×';
+    del.title = '从批次中移除这一份';
+    del.onclick = () => removeBatchFile(i);
+    tab.append(nm, pv, del);
+    box.appendChild(tab);
+  });
+  $('batch-upload-hint').textContent = batch.files.length ? `共 ${batch.files.length} 份` : '';
+  $('batch-analyze-card').hidden = !batch.files.length;
+}
+
+async function removeBatchFile(i) {
+  const f = batch.files[i];
+  if (!f) return;
+  if (!confirm(`从批次中移除「${f.filename}」？`)) return;
+  try {
+    const r = await fetch('/api/tasks/' + encodeURIComponent(f.task_id), { method: 'DELETE' });
+    if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
+  } catch (e) {
+    $('batch-upload-msg').textContent = '移除失败：' + e.message;
+    return;
+  }
+  batch.files.splice(i, 1);
+  batch.rawFiles.splice(i, 1);
+  // 少了一份 → 清单上的份数与命中数已失真，必须重算，不能沿用
+  batch.values = [];
+  batch.masked = false;
+  renderBatchFiles();
+  renderBatchValues();
+}
+
+async function batchUpload(append) {
+  const input = $('batch-file-input');
+  const picked = [...(input.files || [])];
+  if (!picked.length) { showCenterToast('请先选择文件'); return; }
+  $('batch-upload-msg').textContent = '';
+  const btn = append ? $('batch-append-btn') : $('batch-upload-btn');
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '上传中…';
+  try {
+    // 追加 = 整批重传：后端 /api/batch/upload 每次都新建 batch_id，无法往旧批次里加文件。
+    // 与其做一个「看着成功、实际丢掉已选文件」的假按钮，不如老实重传。
+    const all = append ? batch.rawFiles.concat(picked) : picked;
+    const form = new FormData();
+    for (const f of all) form.append('files', f, f.name);
+    const r = await fetch('/api/batch/upload', { method: 'POST', body: form });
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    if (append && batch.batchId) {
+      // 旧批次被新批次取代，旧任务一并清掉（含原文与映射表），不留孤儿
+      fetch('/api/batch/' + encodeURIComponent(batch.batchId), { method: 'DELETE' }).catch(() => {});
+    }
+    batch.batchId = d.batch_id;
+    batch.rawFiles = all;
+    batch.files = d.files || [];
+    batch.values = [];
+    batch.ignored = new Set();
+    batch.masked = false;
+    renderBatchFiles();
+    renderBatchValues();
+    $('batch-values-card').hidden = true;
+    $('batch-result-card').hidden = true;
+    const skipped = d.skipped || [];
+    $('batch-upload-msg').className = skipped.length ? 'error' : 'ok';
+    $('batch-upload-msg').textContent = skipped.length
+      ? `上传成功 ${batch.files.length} 份；跳过 ${skipped.length} 份（无法解析）：` +
+        skipped.slice(0, 5).map(s => `${s.filename}（${s.reason}）`).join('；') +
+        (skipped.length > 5 ? ' …' : '')
+      : `上传成功 ${batch.files.length} 份，点「批量识别」开始。`;
+    if (batch.files.length) showDest('batch');
+  } catch (e) {
+    $('batch-upload-msg').className = 'error';
+    $('batch-upload-msg').textContent = '上传失败：' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+$('batch-upload-btn').onclick = () => batchUpload(false);
+$('batch-append-btn').onclick = () => batchUpload(true);
+$('batch-clear-btn').onclick = async () => {
+  if (!batch.batchId) { showCenterToast('当前没有批次'); return; }
+  if (!confirm('清空整个批次？已上传的原文与映射表会一并删除。')) return;
+  await fetch('/api/batch/' + encodeURIComponent(batch.batchId), { method: 'DELETE' }).catch(() => {});
+  batch.batchId = null; batch.rawFiles = []; batch.files = [];
+  batch.values = []; batch.ignored = new Set(); batch.masked = false;
+  $('batch-file-input').value = '';
+  renderBatchFiles(); renderBatchValues();
+  $('batch-values-card').hidden = true;
+  $('batch-result-card').hidden = true;
+  $('batch-upload-msg').className = 'ok';
+  $('batch-upload-msg').textContent = '批次已清空。';
+};
+
+async function runBatchAnalyze() {
+  if (!batch.batchId) { showCenterToast('请先上传文件'); return; }
+  const btn = $('batch-analyze-btn');
+  btn.disabled = true;
+  btn.textContent = '识别中…';
+  $('batch-analyze-msg').textContent = '';
+  try {
+    const r = await fetch('/api/batch/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batch_id: batch.batchId,
+                             optional_types: batchOptionalTypes(),
+                             exclude_types: batchExcludeTypes() }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    batch.values = d.values || [];
+    batch.ignored = new Set();   // 默认全脱：一个都不例外
+    batch.masked = false;
+    // 「做了、但有边界」：图像层没动。批量里用户最容易默认「整批都干净」。
+    const ib = $('batch-image-banner');
+    const warns = d.image_warnings || [];
+    ib.hidden = !warns.length;
+    ib.textContent = warns.length ? warns.join('；') : '';
+    // 「整份附件被丢弃」：与上面不同，这是产物里少了东西，必须点名到文件。
+    const eb = $('batch-emb-banner');
+    const emb = d.unmaskable_embeddings || 0;
+    eb.hidden = !emb;
+    eb.textContent = emb
+      ? `⚠️ 有 ${emb} 个内嵌附件无法安全脱敏，已从产物中整份剔除（涉及：${(d.unmaskable_files || []).join('、')}）。` +
+        ' 这些附件不会出现在脱敏产物里，请另行处理。'
+      : '';
+    renderBatchValues();
+    $('batch-values-card').hidden = false;
+    $('batch-result-card').hidden = true;
+  } catch (e) {
+    $('batch-analyze-msg').textContent = '批量识别失败：' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '批量识别';
+  }
+}
+$('batch-analyze-btn').onclick = runBatchAnalyze;
+
+function renderBatchValues() {
+  const list = $('batch-value-list');
+  const q = ($('batch-search').value || '').trim();
+  list.innerHTML = '';
+  const shown = batch.values.filter(v => !q || v.value.indexOf(q) >= 0);
+  $('batch-value-count').textContent = `${shown.length} / ${batch.values.length}`;
+  for (const v of shown) {
+    const off = batch.ignored.has(v.value);
+    const row = document.createElement('div');
+    row.className = 'bv-row' + (off ? ' bv-off' : '');
+    const head = document.createElement('div');
+    head.className = 'bv-head';
+
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.className = 'bv-check';
+    chk.checked = !off;
+    chk.title = '取消勾选 = 这个值在整批里保留不脱';
+    chk.onchange = () => {
+      if (chk.checked) batch.ignored.delete(v.value); else batch.ignored.add(v.value);
+      row.classList.toggle('bv-off', !chk.checked);
+    };
+
+    const val = document.createElement('span');
+    val.className = 'bv-value'; val.textContent = v.value;
+
+    head.append(chk, val);
+    // 来源标记：库命中 vs 规则命中，两者可信度不同，用户判断「该不该脱」时要用
+    if (v.from_library) {
+      const b = document.createElement('span'); b.className = 'badge'; b.textContent = '库';
+      b.title = '来自脱敏库（你自己维护的值或内置地名）'; head.appendChild(b);
+    }
+    if (v.from_regex) {
+      const b = document.createElement('span'); b.className = 'badge'; b.textContent = '规则';
+      b.title = '来自规则识别（正则 / 表头感知 / 本地模型）'; head.appendChild(b);
+    }
+    const meta = document.createElement('span');
+    meta.className = 'bv-meta';
+    meta.textContent = `出现 ${v.file_count} 份 · 命中 ${v.hit_count} 次`;
+    head.appendChild(meta);
+
+    // 上下文抽查：点开看它具体落在哪几份的哪个单元格
+    if ((v.locations || []).length) {
+      const tg = document.createElement('button');
+      tg.textContent = batch.openValue === v.value ? '收起位置' : '位置';
+      tg.title = '查看命中位置样例（抽查用：同名不同义的风险靠它发现）';
+      tg.onclick = () => {
+        batch.openValue = batch.openValue === v.value ? null : v.value;
+        renderBatchValues();
+      };
+      head.appendChild(tg);
+    }
+    row.appendChild(head);
+
+    if (batch.openValue === v.value && (v.locations || []).length) {
+      const locs = document.createElement('div');
+      locs.className = 'bv-locs';
+      const more = (v.located_hits || 0) > v.locations.length
+        ? ` … 共 ${v.located_hits} 处` : '';
+      locs.textContent = v.locations.join('　') + more;
+      row.appendChild(locs);
+    }
+    list.appendChild(row);
+  }
+  if (!shown.length) {
+    const e = document.createElement('div');
+    e.className = 'hint';
+    e.textContent = batch.values.length ? '没有匹配的值。' : '还没有识别结果。';
+    list.appendChild(e);
+  }
+}
+$('batch-search').oninput = renderBatchValues;
+$('batch-all-btn').onclick = () => { batch.ignored.clear(); renderBatchValues(); };
+$('batch-none-btn').onclick = () => {
+  if (!confirm('全不选 = 整批一个值都不脱，确认？')) return;
+  batch.values.forEach(v => batch.ignored.add(v.value));
+  renderBatchValues();
+};
+
+async function runBatchMask() {
+  if (!batch.batchId) { showCenterToast('请先上传文件'); return; }
+  if (!batch.values.length) { showCenterToast('请先「批量识别」'); return; }
+  const keep = batch.values.length - batch.ignored.size;
+  if (!confirm(`将对 ${batch.files.length} 份文件执行脱敏：脱敏 ${keep} 个值，保留 ${batch.ignored.size} 个。确认？`)) return;
+  const btn = $('batch-mask-btn');
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '脱敏中…';
+  $('batch-mask-msg').textContent = '';
+  try {
+    // 两段式接口的规矩：/api/batch/mask 会在服务端**重跑 analyze**，
+    // 参数必须与 analyze 阶段一致，否则「界面看到的清单」与「实际脱掉的值」不符。
+    const r = await fetch('/api/batch/mask', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batch_id: batch.batchId,
+                             ignore_values: [...batch.ignored],
+                             drop_unmaskable_embeddings: true,
+                             optional_types: batchOptionalTypes(),
+                             exclude_types: batchExcludeTypes() }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    batch.masked = true;
+    const s = d.summary || {};
+    $('batch-result-summary').textContent =
+      `整批脱敏完成：${s.ok || 0} 份成功 / ${s.total_files || 0} 份` +
+      (s.failed ? `，${s.failed} 份失败` : '') +
+      `，共替换 ${s.total_entries || 0} 个值（双向校验已通过）。`;
+    const box = $('batch-result-list');
+    box.innerHTML = '';
+    for (const f of (d.results || [])) {
+      const row = document.createElement('div');
+      row.className = 'bfile-row';
+      const nm = document.createElement('span');
+      nm.textContent = f.filename;
+      const st = document.createElement('span');
+      st.className = f.error ? 'error' : 'hint';
+      st.textContent = f.error ? ('失败：' + f.error) : `${f.entry_count} 个值`;
+      row.append(nm, st);
+      box.appendChild(row);
+      // 单份下载：整批 ZIP 之外给个后路，某份失败时不至于整批取不回
+      if (!f.error && f.task_id) {
+        const dl = document.createElement('button');
+        dl.textContent = '下载这一份';
+        dl.onclick = () => triggerDownload('/api/download/' + encodeURIComponent(f.task_id) + '/masked', f.masked_filename || f.filename);
+        row.appendChild(dl);
+      }
+    }
+    $('batch-result-card').hidden = false;
+  } catch (e) {
+    $('batch-mask-msg').textContent = '批量脱敏失败：' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+$('batch-mask-btn').onclick = runBatchMask;
+$('batch-dl-zip').onclick = () => {
+  if (!batch.batchId) { showCenterToast('当前没有批次'); return; }
+  const stamp = new Date().toISOString().slice(0, 10);
+  triggerDownload('/api/batch/' + encodeURIComponent(batch.batchId) + '/download',
+                  `脱敏产物_${stamp}.zip`);
+};
+
 // ---------------------------------------------------------------- 可选类型各自独立勾选，汇总成清单发给服务端（与 Presidio 逐实体类型 enabled 的做法一致）
 function syncOptionalTypes(){
   state.optionalTypes = [...document.querySelectorAll('.opt-type')]
@@ -1757,6 +2361,38 @@ if (npInput) npInput.onchange = ()=>{ if (state.taskId) runDetect(); };
 // ner::is_loaded() 自行判定。故此处无需任何 onchange 处理。
 $('detect-btn').onclick = runDetect;
 
+// 把 /api/analyze 的响应灌进 state 并重建分组（不含请求本身，供「自动识别」与
+// 「批量预览」两条入口共用，避免两处各自维护一套、悄悄走偏）。
+function applyAnalyzeData(data) {
+  // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
+  state.placeholders = data.placeholders || {};
+  // 内嵌 OOXML 部件视图（仅可见性，mask 阶段全量自动脱敏，不可单独取消）。
+  state.embedded = data.embedded || [];
+  // PDF 装饰图告知：文本层已脱、图像层没动。必须显式告知，
+  // 否则用户会以为整份 PDF 都处理过了 —— 那正是本工具要防的假绿。
+  {
+    const b = $('image-warning-banner');
+    if (b) {
+      if (data.image_warning) { b.hidden = false; b.textContent = data.image_warning; }
+      else { b.hidden = true; b.textContent = ''; }
+    }
+  }
+  // 重建自动识别结果：移除此前由自动识别/脱敏库产生的分组（保留手动标注），
+  // 再重新并入「脱敏库命中」与「正则/黑名单实体」。这样清空全部后点自动识别，
+  // 脱敏库的硬脱敏也会重新触发；切换金额/日期等可选类型时手动标注不丢失。
+  state.groups = state.groups.filter(g => g.source === 'manual');
+  state.inLibrary = new Set((data.suggestions||[]).map(s=>s.value));
+  if (state.sheetMode) {
+    applySuggestionsSheet(data.suggestions||[]);
+  } else {
+    for (const s of (data.suggestions||[])) {
+      const occs = (s.spans||[]).map(sp => ({ start: sp.start, end: sp.end, excluded: false, text: s.value }));
+      addGroupCore(s.value, s.kind, occs, null, false);
+    }
+  }
+  applyDetect(data.entities||[]);
+}
+
 async function runDetect() {
   if (!state.taskId) return;
   $('detect-btn').disabled = true;
@@ -1764,8 +2400,10 @@ async function runDetect() {
     // 不再发送 threshold：阈值已固定（准确性优先），由服务端 recognize::DEFAULT_THRESHOLD 决定。
     // 也不再发送 ner_person / ner_address：见上方说明（不传即开）。
     // 层三开关：取消勾选 → disable_layer3=true，只跑层二。
+    // **批量预览时强制关闭**：批量 analyze 是 disable_layer3=true，若预览里开了层三，
+    // 会多出一批「批量清单里根本没有」的值 —— 用户以为会脱、实际没脱（假绿）。
     const layer3El = document.getElementById('opt-layer3');
-    const disableLayer3 = layer3El ? !layer3El.checked : false;
+    const disableLayer3 = state.batchPreview ? true : (layer3El ? !layer3El.checked : false);
     // 高级设置：num_predict（层三次生成 token 上限）。仅当用户显式填入合法正值才覆盖后端默认；
     // 留空则 JSON.stringify 自动省略该字段，后端回落到 OLLAMA_NUM_PREDICT / 默认 4096。
     const npEl = document.getElementById('opt-num-predict');
@@ -1783,33 +2421,7 @@ async function runDetect() {
                              num_predict: numPredict }) });
     if (!an.ok) throw new Error(await an.text());
     const data = await an.json();
-    // 值→内容寻址占位符映射（预览用，与 /api/mask 落地的占位符一致）。
-    state.placeholders = data.placeholders || {};
-    // 内嵌 OOXML 部件视图（仅可见性，mask 阶段全量自动脱敏，不可单独取消）。
-    state.embedded = data.embedded || [];
-    // PDF 装饰图告知：文本层已脱、图像层没动。必须显式告知，
-    // 否则用户会以为整份 PDF 都处理过了 —— 那正是本工具要防的假绿。
-    {
-      const b = $('image-warning-banner');
-      if (b) {
-        if (data.image_warning) { b.hidden = false; b.textContent = data.image_warning; }
-        else { b.hidden = true; b.textContent = ''; }
-      }
-    }
-    // 重建自动识别结果：移除此前由自动识别/脱敏库产生的分组（保留手动标注），
-    // 再重新并入「脱敏库命中」与「正则/黑名单实体」。这样清空全部后点自动识别，
-    // 脱敏库的硬脱敏也会重新触发；切换金额/日期等可选类型时手动标注不丢失。
-    state.groups = state.groups.filter(g => g.source === 'manual');
-    state.inLibrary = new Set((data.suggestions||[]).map(s=>s.value));
-    if (state.sheetMode) {
-      applySuggestionsSheet(data.suggestions||[]);
-    } else {
-      for (const s of (data.suggestions||[])) {
-        const occs = (s.spans||[]).map(sp => ({ start: sp.start, end: sp.end, excluded: false, text: s.value }));
-        addGroupCore(s.value, s.kind, occs, null, false);
-      }
-    }
-    applyDetect(data.entities||[]);
+    applyAnalyzeData(data);
   } catch(e) { alert('自动识别失败：'+e.message); }
   finally { $('detect-btn').disabled = false; }
 }
@@ -2022,15 +2634,27 @@ $('group-list').addEventListener('change', (ev)=>{
   // 取消（排除）某个「自动识别」的出现处 → 记一条 exclude。
   if (occ.excluded && (g.source === 'auto' || g.source === 'ner'))
     logAdjust('exclude', g.value, occ.start, occ.end, null);
+  // 批量预览下：逐处勾选要折算成批次级的「按值」决策（见 syncBatchIgnoredFromGroups）。
+  syncBatchIgnoredFromGroups();
   renderAll(); // 保持 focusedGid，展开状态与勾选不被重置
 });
 
 // 清空
-$('clear-btn').onclick = ()=>{ if (confirm('确定清空全部脱敏项？')) { state.groups=[]; closePanel(); renderAll(); } };
+$('clear-btn').onclick = ()=>{
+  if (!confirm('确定清空全部脱敏项？')) return;
+  state.groups=[];
+  // 批量预览下清空 = 这些值整批都不脱（否则回到批量页清单里它们还是勾选着的，
+  // 用户以为自己清掉了、实际照样被脱 —— 静默不一致）。
+  syncBatchIgnoredFromGroups();
+  closePanel(); renderAll();
+};
 
 // ---------------------------------------------------------------- 应用外壳：目的地路由 + 状态栏
 function showDest(name) {
-  const map = { start:'dest-start', annotate:'work', export:'dest-export', restore:'dest-restore', library:'dest-library' };
+  // 直接点导航切回批量页，等同于按「返回批量」：必须走同一套退出逻辑，
+  // 否则预览里改过的勾选不会回写清单（用户以为改了、实际没变）。
+  if (name === 'batch' && state.batchPreview) exitBatchPreview(false);
+  const map = { start:'dest-start', batch:'dest-batch', annotate:'work', export:'dest-export', restore:'dest-restore', library:'dest-library' };
   for (const k in map) { const el = $(map[k]); if (el) el.classList.toggle('active', k === name); }
   document.querySelectorAll('#navrail .nav-item').forEach(b => b.classList.toggle('active', b.dataset.dest === name));
   updateStatus();
