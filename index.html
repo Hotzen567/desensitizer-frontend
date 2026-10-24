@@ -202,7 +202,7 @@
   .badge.off { background:#fdecea; color:var(--danger); }
 
   /* 就近编辑面板 */
-  #field-panel { position:fixed; z-index:50; width:300px; background:#fff;
+  #field-panel { position:fixed; z-index:50; width:300px; max-height:calc(100vh - 20px); overflow:auto; background:#fff;
                  border:1px solid var(--accent); border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.18);
                  padding:14px; }
   #field-panel h3 { position:static; background:none; padding:0; margin:0 0 10px; }
@@ -210,7 +210,7 @@
   #field-panel .occ { max-height:140px; overflow:auto; border:1px solid var(--line);
                       border-radius:6px; padding:6px; margin-top:4px; }
   #field-panel .occ label { display:flex; gap:6px; align-items:center; margin:2px 0; color:#1f2430; }
-  #field-panel .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  #field-panel .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; position:sticky; bottom:0; background:#fff; padding-top:8px; }
   #panel-status { font-size:12px; color:var(--ok); min-height:16px; margin-top:6px; }
 
   .link { color:var(--accent); text-decoration:none; }
@@ -1545,16 +1545,24 @@ function dropOverlappingOccurrences(newOccs) {
 function addManualGroup(start, end, rect) {
   const value = state.chars.slice(start, end).join('');
   if (!value) return;
-  let occs = allOccurrences(value).map(o => ({ ...o, text: value }));
-  // 已完全落在某个既有脱敏项（任意 group）区间内的 occurrence 不再新建、也不删既有项：
-  // 例如长项「湖州XX路」已正确脱敏，手动选其中子串「湖州」时，该「湖州」已被长项覆盖，
-  // 跳过即可避免把正确脱敏的长项整段冲掉；仅未覆盖的独立「湖州」才新建组。
-  // （这正是「已包含在脱敏项里的『湖州』不再被选取」的诉求。）
-  occs = occs.filter(o => !state.groups.some(g =>
-    g.occurrences.some(e => e.start <= o.start && o.end <= e.end)));
-  if (!occs.length) return; // 选区已被既有脱敏项完全覆盖，无需新建组
-  logOverriddenAutos(occs, value);   // 记「手动顶掉自动项」（须在顶掉之前）
-  dropOverlappingOccurrences(occs);
+
+  // 例外（问题3）：选区严格落在某个既有脱敏项内部（旧项 ⊃ 选区且不等于选区），
+  // 视为「选了长项里的一小段」，不新建、也不顶掉旧项，保留长项完整。
+  const strictlyInside = state.groups.some(g =>
+    g.occurrences.some(e => e.start <= start && end <= e.end && !(e.start === start && e.end === end)));
+  if (strictlyInside) { window.getSelection() && window.getSelection().removeAllRanges(); return; }
+
+  // 手动优先：用选区「精确区间」先顶掉与之相交，或被选区包含/相等的旧项。
+  // 必须用精确区间 [start,end] 顶掉，而不能依赖 allOccurrences 的位置——否则当划选
+  // 恰好等于某个已脱敏项时，该位置会被「落在旧项内」的过滤剔除、又经同值合并保留回来，
+  // 表现为「划选了已脱敏词却踢不掉旧高亮」。顺序：先记 override（旧项还在），再顶掉。
+  const selOcc = [{ start, end }];
+  logOverriddenAutos(selOcc, value);
+  dropOverlappingOccurrences(selOcc);
+
+  // 全文同值建组（选一处，全文同值皆脱）。
+  const occs = allOccurrences(value).map(o => ({ ...o, text: value }));
+  if (!occs.length) return;
   addGroupCore(value, 'manual', occs, rect, true);
 }
 
@@ -1749,18 +1757,26 @@ function openPanel(gid, anchor) {
     $('panel-status').textContent = '已填入脱敏库顶部，请选类别后点「加入脱敏库」';
   };
 
-  // 定位
+  // 定位：始终把面板钳制在视口内——优先选区下方，放不下放上方，再放不下贴顶
+  // （面板已设 max-height + overflow:auto，超高时内部滚动，操作按钮始终可达）。
   const p = $('field-panel');
   p.hidden = false;
   const pw = p.offsetWidth, phgt = p.offsetHeight;
-  let top = 80, left = (window.innerWidth - pw)/2;
+  let top, left;
   if (anchor) {
     const r = anchor.getBoundingClientRect();
-    top = r.bottom + 8; left = r.left;
-    if (left + pw > window.innerWidth-10) left = window.innerWidth - pw - 10;
-    if (top + phgt > window.innerHeight-10) top = Math.max(10, r.top - phgt - 8);
+    left = Math.min(Math.max(10, r.left), Math.max(10, window.innerWidth - pw - 10));
+    top = r.bottom + 8;
+    if (top + phgt > window.innerHeight - 10) top = r.top - phgt - 8;  // 放上方
+    if (top < 10) top = 10;                                            // 上方也放不下 → 贴顶
+  } else {
+    left = (window.innerWidth - pw) / 2;
+    top = 10;
   }
-  p.style.top = top+'px'; p.style.left = left+'px';
+  // 最终钳制，确保面板整体落在视口内
+  top = Math.min(Math.max(10, top), Math.max(10, window.innerHeight - phgt - 10));
+  left = Math.min(Math.max(10, left), Math.max(10, window.innerWidth - pw - 10));
+  p.style.top = top + 'px'; p.style.left = left + 'px';
 }
 
 function closePanel() { state.pendingGid=null; $('field-panel').hidden = true; }
