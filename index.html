@@ -409,6 +409,9 @@
       <!-- PDF 装饰图告知条：文本层已真脱，但图像层像素不在处理范围内（印章/logo 一类）。
            不显示的话用户会默认「全都脱过了」，那就是假绿。 -->
       <div id="image-warning-banner" class="banner embedded-banner" hidden></div>
+      <!-- 老版 Office 文件（.doc/.xls/.ppt）经转换桥接后会静默丢失 VBA 宏。
+           必须显式告知，否则用户以为往返无损。 -->
+      <div id="legacy-macro-warning-banner" class="banner" hidden></div>
       <!-- ① 开始：上传 -->
       <div class="dest scroll active" id="dest-start">
         <div class="card">
@@ -1820,6 +1823,14 @@ $('upload-btn').onclick = async () => {
         else { b.hidden = true; b.textContent = ''; }
       }
     }
+    // 老版 Office 宏丢失告知：.doc/.xls/.ppt 经转换桥接后会静默丢 VBA 宏。
+    {
+      const b = $('legacy-macro-warning-banner');
+      if (b) {
+        if (data.legacy_macro_warning) { b.hidden = false; b.textContent = data.legacy_macro_warning; }
+        else { b.hidden = true; b.textContent = ''; }
+      }
+    }
 
     state.taskId = info.task_id;
     state.filename = info.filename;
@@ -2347,12 +2358,21 @@ function applyAnalyzeData(data) {
   // PDF 装饰图告知：文本层已脱、图像层没动。必须显式告知，
   // 否则用户会以为整份 PDF 都处理过了 —— 那正是本工具要防的假绿。
   {
-    const b = $('image-warning-banner');
-    if (b) {
-      if (data.image_warning) { b.hidden = false; b.textContent = data.image_warning; }
-      else { b.hidden = true; b.textContent = ''; }
+    const b = $('image-warni    {
+      const b = $('image-warning-banner');
+      if (b) {
+        if (data.image_warning) { b.hidden = false; b.textContent = data.image_warning; }
+        else { b.hidden = true; b.textContent = ''; }
+      }
     }
-  }
+    // 老版 Office 宏丢失告知：.doc/.xls/.ppt 经转换桥接后会静默丢 VBA 宏。
+    {
+      const b = $('legacy-macro-warning-banner');
+      if (b) {
+        if (data.legacy_macro_warning) { b.hidden = false; b.textContent = data.legacy_macro_warning; }
+        else { b.hidden = true; b.textContent = ''; }
+      }
+    }
   // 重建自动识别结果：移除此前由自动识别/脱敏库产生的分组（保留手动标注），
   // 再重新并入「脱敏库命中」与「正则/黑名单实体」。这样清空全部后点自动识别，
   // 脱敏库的硬脱敏也会重新触发；切换金额/日期等可选类型时手动标注不丢失。
