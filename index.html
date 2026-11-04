@@ -419,7 +419,7 @@
           <p class="hint">上传文书即可开始标注。软件采用「先标注、后脱敏、再双向校验」流程：所有脱敏项都需你确认后才写入。</p>
           <div class="row" style="margin-top:14px">
             <label class="file-btn" for="file-input" title="点击选择要处理的文件">选择文件
-              <input type="file" id="file-input" accept=".docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,.pdf" class="visually-hidden">
+              <input type="file" id="file-input" accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.markdown,.csv,.pdf" class="visually-hidden">
             </label>
             <button id="upload-btn" class="primary">上传并解析</button>
             <span class="hint">支持 docx / xlsx / pptx / txt / md / csv / pdf；PDF 仅处理文本型（扫描件会被拒答）。</span>
@@ -443,7 +443,7 @@
           <p class="hint">一次处理多份结构相近的文书（如几百份债权表）。<b>决策以「值」为单位</b>：全批次相同的值并成一行，你只需决策一次，即应用到每一份。</p>
           <div class="row" style="margin-top:12px">
             <label class="file-btn" for="batch-file-input" title="按住 Ctrl / Shift 可一次选择多份">选择多份文件
-              <input type="file" id="batch-file-input" multiple accept=".docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,.pdf" class="visually-hidden">
+              <input type="file" id="batch-file-input" multiple accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.markdown,.csv,.pdf" class="visually-hidden">
             </label>
             <button id="batch-upload-btn" class="primary">上传并建立批次</button>
             <button id="batch-append-btn" title="后端批次不支持增量追加，追加会连同已选文件一起重新上传">追加文件</button>
@@ -1786,6 +1786,18 @@ function closePanel() { state.pendingGid=null; $('field-panel').hidden = true; }
 
 // ---------------------------------------------------------------- 上传与解析
 
+$('file-input').addEventListener('change', () => {
+  const inp = $('file-input');
+  const fn = $('file-name');
+  if (inp.files && inp.files.length) {
+    fn.textContent = inp.files[0].name;
+    fn.classList.add('file-name--set');
+  } else {
+    fn.textContent = '';
+    fn.classList.remove('file-name--set');
+  }
+});
+
 $('upload-btn').onclick = async () => {
   const input = $('file-input');
   $('upload-msg').textContent = '';
@@ -2358,8 +2370,7 @@ function applyAnalyzeData(data) {
   // PDF 装饰图告知：文本层已脱、图像层没动。必须显式告知，
   // 否则用户会以为整份 PDF 都处理过了 —— 那正是本工具要防的假绿。
   {
-    const b = $('image-warni    {
-      const b = $('image-warning-banner');
+    const b = $('image-warning-banner');
       if (b) {
         if (data.image_warning) { b.hidden = false; b.textContent = data.image_warning; }
         else { b.hidden = true; b.textContent = ''; }
