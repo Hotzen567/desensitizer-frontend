@@ -9,11 +9,17 @@
   .cap-off { display: none !important; }
   /* 固定输出目录提示条（套壳/所内）：output_dir 有值时显示 */
   #output-dir-banner.banner {
+    display: flex; flex-direction: column; gap: 4px;
     margin: 0 0 var(--ds-sp-4); padding: 10px 14px;
     background: #e8f3ff; border: 1px solid #b6d8ff; border-radius: var(--ds-rd-md);
     color: #1d4e89; font-size: var(--ds-fs-sm); line-height: 1.6;
   }
-  #output-dir-banner.banner b { word-break: break-all; }
+  #output-dir-banner.banner .od-label { }
+  #output-dir-banner.banner b#output-dir-path {
+    display: block; font-family: var(--ds-font-mono); overflow-wrap: anywhere;
+    word-break: normal; background: rgba(0,0,0,.04); padding: 3px 8px;
+    border-radius: 4px; color: #103a66;
+  }
   /* 内嵌 OOXML 部件提示条：文档含嵌入的 Excel/PPT/Word 时显示（警告色，提示其 PII 会被自动脱敏） */
   .embedded-banner {
     margin: 0 0 var(--ds-sp-3); padding: 8px 14px;
@@ -412,7 +418,10 @@
       </div>
     </nav>
     <div class="routerview">
-      <div id="output-dir-banner" class="output-dir-only banner">脱敏 / 还原产物已自动保存到：<b id="output-dir-path"></b>（其中「脱敏产物」「还原产物」两个子文件夹）</div>
+      <div id="output-dir-banner" class="output-dir-only banner">
+        <span class="od-label">脱敏 / 还原产物已自动保存到以下目录（其中含「脱敏产物」「还原产物」两个子文件夹）：</span>
+        <b id="output-dir-path"></b>
+      </div>
       <div id="ner-warning-banner" class="banner" hidden></div>
       <!-- PDF 装饰图告知条：文本层已真脱，但图像层像素不在处理范围内（印章/logo 一类）。
            不显示的话用户会默认「全都脱过了」，那就是假绿。 -->
