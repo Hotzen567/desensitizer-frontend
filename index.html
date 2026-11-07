@@ -122,6 +122,14 @@
   select, input[type=file], input[type=text] { font:inherit; padding:6px 8px; border:1px solid var(--ds-bd);
                              border-radius:var(--ds-rd-sm); background:var(--ds-bg-container); color:var(--ds-fg-primary); }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  /* 脱敏库顶栏：滚动长列表时钉在顶部，不被列表遮住；窄窗下控件优雅换行。 */
+  .lib-bar { position:sticky; top:0; z-index:5; background:var(--ds-bg-container);
+             padding:2px 2px 10px; margin:0 0 4px; border-bottom:1px solid var(--ds-bd-subtle); }
+  .lib-bar .row { row-gap:8px; }
+  /* 顶栏控件：输入框可收缩、按钮不挤变形；窄到放不下时整组换行而非被压坏。 */
+  .lib-bar input[type=text] { flex:1 1 140px; min-width:0; }
+  .lib-bar select { flex:0 0 auto; }
+  .lib-bar button { flex:0 0 auto; white-space:nowrap; }
   .hint { color:var(--ds-fg-secondary); font-size:var(--ds-fs-sm); }
   .error { color:var(--ds-error); font-size:var(--ds-fs-sm); margin-top:8px; white-space:pre-wrap; }
   .ok { color:var(--ds-success); font-size:var(--ds-fs-sm); margin-top:8px; }
@@ -616,18 +624,20 @@
       <!-- ⑤ 脱敏库 -->
       <div class="dest scroll" id="dest-library">
         <div class="card library-only" id="lib-body">
-            <h2>脱敏库</h2>
-            <div class="hint" style="margin-bottom:8px">已脱敏过的字段值、手动加入的值，以及内置地名都会收录于此；打开文档时命中的值会自动建议。可按类别筛选，或在顶部新增。</div>
-            <div class="row" style="margin-bottom:8px">
-              <input type="text" id="lib-add-input" placeholder="新增到脱敏库的值…" style="flex:1;min-width:160px">
-              <select id="lib-add-cat"></select>
-              <button id="lib-add-btn" class="primary">加入脱敏库</button>
-            </div>
-            <div class="row" style="margin-bottom:8px">
-              <select id="lib-cat-filter"><option value="">全部类别</option></select>
-              <input type="text" id="lib-search" placeholder="搜索脱敏库…" style="flex:1;min-width:160px">
-              <span id="lib-count" class="count-pill">0</span>
-              <button id="lib-clear-custom-btn" type="button" title="清空类别为「自定义」的全部条目（不可恢复）" style="background:var(--danger);border-color:var(--danger);color:#fff">清空自定义</button>
+            <div class="lib-bar">
+              <h2>脱敏库</h2>
+              <div class="hint" style="margin-bottom:8px">已脱敏过的字段值、手动加入的值，以及内置地名都会收录于此；打开文档时命中的值会自动建议。可按类别筛选，或在顶部新增。</div>
+              <div class="row" style="margin-bottom:8px">
+                <input type="text" id="lib-add-input" placeholder="新增到脱敏库的值…">
+                <select id="lib-add-cat"></select>
+                <button id="lib-add-btn" class="primary">加入脱敏库</button>
+              </div>
+              <div class="row" style="margin-bottom:8px">
+                <select id="lib-cat-filter"><option value="">全部类别</option></select>
+                <input type="text" id="lib-search" placeholder="搜索脱敏库…">
+                <span id="lib-count" class="count-pill">0</span>
+                <button id="lib-clear-custom-btn" type="button" title="清空类别为「自定义」的全部条目（不可恢复）" style="background:var(--danger);border-color:var(--danger);color:#fff">清空自定义</button>
+              </div>
             </div>
             <div id="lib-list"></div>
           </div>
