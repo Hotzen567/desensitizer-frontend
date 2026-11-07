@@ -7,16 +7,18 @@
 <style>
   /* 能力门控：后端 /api/health 的 engines 声明为 false 的功能，前端据此隐藏 */
   .cap-off { display: none !important; }
-  /* 固定输出目录提示条（套壳/所内）：output_dir 有值时显示 */
+  /* 固定输出目录提示条（套壳/所内）：output_dir 有值时显示。
+     用 display:block 而非 flex：block 天生满宽、绝不会在 WebView2 等引擎下塌成竖条；
+     路径 b 单独成块，呈「说明在上、路径在下」的竖向排列。 */
   #output-dir-banner.banner {
-    display: flex; flex-direction: column; gap: 4px;
+    display: block; box-sizing: border-box; width: 100%;
     margin: 0 0 var(--ds-sp-4); padding: 10px 14px;
     background: #e8f3ff; border: 1px solid #b6d8ff; border-radius: var(--ds-rd-md);
     color: #1d4e89; font-size: var(--ds-fs-sm); line-height: 1.6;
   }
   #output-dir-banner.banner .od-label { }
   #output-dir-banner.banner b#output-dir-path {
-    display: block; font-family: var(--ds-font-mono); overflow-wrap: anywhere;
+    display: block; margin-top: 4px; font-family: var(--ds-font-mono); overflow-wrap: anywhere;
     word-break: normal; background: rgba(0,0,0,.04); padding: 3px 8px;
     border-radius: 4px; color: #103a66;
   }
