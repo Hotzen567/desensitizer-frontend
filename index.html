@@ -134,8 +134,10 @@
   .lib-bar { position:sticky; top:0; z-index:5; background:var(--ds-bg-container);
              padding:2px 2px 10px; margin:0 0 4px; border-bottom:1px solid var(--ds-bd-subtle); }
   .lib-bar .row { row-gap:8px; }
-  /* 顶栏控件：输入框可收缩、按钮不挤变形；窄到放不下时整组换行而非被压坏。 */
-  .lib-bar input[type=text] { flex:1 1 140px; min-width:0; }
+  /* 顶栏控件：输入框不抢占剩余空间（flex-grow:0），这样「加入脱敏库」「清空自定义」
+     等按钮始终留在视口内。此前 flex:1 会把输入框拉伸到占满整行、把右侧按钮挤出窗口；
+     又因 body{overflow:hidden} 没有滚动条，按钮永久不可见（窄窗/未真正全屏时尤甚）。 */
+  .lib-bar input[type=text] { flex:0 1 300px; min-width:120px; max-width:360px; }
   .lib-bar select { flex:0 0 auto; }
   .lib-bar button { flex:0 0 auto; white-space:nowrap; }
   .hint { color:var(--ds-fg-secondary); font-size:var(--ds-fs-sm); }
@@ -2992,7 +2994,7 @@ async function refreshLibrary() {
       return `<div class="gitem" data-val="${escapeAttr(x.value)}">
         <div class="top"><span class="val" title="${escapeAttr(x.value)}">${escapeHtml(shownVal)}</span>${kindBadge}</div>
         <div class="row" style="margin-top:6px;gap:6px">
-          <select class="lib-cat" data-val="${escapeAttr(x.value)}" style="flex:1;min-width:100px">${categoryOptions(x.category)}</select>
+          <select class="lib-cat" data-val="${escapeAttr(x.value)}" style="flex:0 1 200px;min-width:100px;max-width:260px">${categoryOptions(x.category)}</select>
           <button class="lib-del" data-val="${escapeAttr(x.value)}" data-kind="${x.kind}" data-cat="${escapeAttr(x.category)}">删除</button>
         </div>
       </div>`;
