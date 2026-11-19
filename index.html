@@ -825,6 +825,16 @@ async function loadCategoryCounts() {
     for (const [c, n] of (d.categories || [])) libCatCounts[c] = n;
   } catch (_) { /* 取不到就按原顺序 */ }
 }
+// 库值条目的类别下拉选项：覆盖全部可选类别，当前值所属类别置为选中。
+// 注意：refreshLibrary 里每条库值的下拉就靠这个函数渲染；漏定义会让 rows.map 抛错、
+// 整个列表空白（计数已先行设置，故表现为「共 N 条」但无内容）。
+function categoryOptions(selected) {
+  const cats = orderedCategories();
+  const opts = cats.includes(selected) ? cats : [selected].concat(cats);
+  return opts.map(c =>
+    `<option value="${escapeAttr(c)}"${c === selected ? ' selected' : ''}>${escapeHtml(c)}</option>`
+  ).join('');
+}
 const minStart = (g) => g.occurrences.reduce((m,o)=>Math.min(m,o.start), Infinity);
 const findGroup = (value) =>
   state.groups.find((g)=>g.value===value);
