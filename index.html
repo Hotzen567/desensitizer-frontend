@@ -545,7 +545,7 @@
                地址一律由正则整段门址 + 「有区划前缀无门牌号」兜底负责（见 api.rs）。
                NER 可用性由后端自行判定（ner::is_loaded()），前端不再传 ner_person / ner_address
                （后端语义：不传即开）。将来若换回 OpenMed（有 ADDR 组），门址 NER 会自动重新生效。 -->
-          <span class="hint auto-only" title="正文里孤立出现的人名由本地离线模型补充；不联网、不出文">本地离线模型已启用（正文人名）</span>
+          <span class="hint auto-only" id="ner-enabled-hint" title="正文里孤立出现的人名由本地离线模型补充；不联网、不出文">本地离线模型已启用（正文人名）</span>
           <!-- 灵敏度滑块已移除：阈值固定（准确性优先），各规则置信度已按社区通行值校准。 -->
           <button id="detect-btn" class="auto-only">自动识别</button>
           <span class="hint auto-only">固定阈值 0.8</span>
@@ -1435,8 +1435,6 @@ function addCellGroup(occs, source, value, openPanel) {
   renderAll();
   if (openPanel) openPanel(g.gid, null);
 }
-
-function mkOcc(c) { return { start: c.start, end: c.end, excluded: false, text: c.value, sheet: c.sheet, row: c.row, col: c.col }; }
 
 // 在所有单元格里按「子串」查找 needle 的每一处出现（跨工作表），返回 occurrence 列表。
 // 用码点（Array.from）比较，兼容中文与 emoji；这样「永康市」也能命中「永康市东城街道」里那段。
@@ -3342,8 +3340,14 @@ function applyCaps() {
   // 时，人名识别退化为纯正则、且前端此前无任何提示——极易误判「已开」。仅在「权重在 + 没加载成功」
   // 这一危险组合下提示；权重缺失（ner=false，属正常未安装）或加载成功都不提示。
   const nerWarn = document.getElementById('ner-warning-banner');
+  // 「本地离线模型已启用」这句不能写死：ner_loaded=false（权重在却没加载成功）时它仍显示
+  // 就与下方告警自相矛盾。仅在后端明确报 ner_loaded===false 时隐藏它——旧后端不报该字段
+  // （undefined）时保持显示，向后兼容；真正加载成功也显示。
+  const nerHint = document.getElementById('ner-enabled-hint');
+  const nerFailed = !!(caps && caps.ner === true && caps.ner_loaded === false);
+  if (nerHint) nerHint.hidden = nerFailed;
   if (nerWarn) {
-    if (caps && caps.ner === true && caps.ner_loaded === false) {
+    if (nerFailed) {
       nerWarn.hidden = false;
       nerWarn.textContent = '人名深度识别（本地 NER 模型）未能加载，当前仅用正则规则识别人名，可能漏脱。'
         + (caps.ner_load_error ? (' 原因：' + caps.ner_load_error) : ' 请检查模型文件与 onnxruntime 动态库版本是否匹配。');
